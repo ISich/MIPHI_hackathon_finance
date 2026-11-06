@@ -1,0 +1,3 @@
+# Install this local src-layout package and its runtime dependencies.
+# Project metadata and packaging live in pyproject.toml.
+-e .
