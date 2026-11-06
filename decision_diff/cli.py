@@ -9,6 +9,8 @@ from time import perf_counter
 
 from .configs import REAL, TEACHING
 from .core import normalize_pair
+from .segments import build_segment
+from .reporting import summarize, pivot_facts
 
 
 def load(path: Path) -> dict:
@@ -50,7 +52,7 @@ def main() -> None:
     missing_before = sorted(set(after_files) - set(before_files))
     missing_after = sorted(set(before_files) - set(after_files))
     pairs = sorted(set(before_files) & set(after_files))
-    normalized, changes, errors = [], [], []
+    normalized, changes, segments, errors = [], [], [], []
     t0 = perf_counter()
     for name in pairs:
         try:
@@ -59,11 +61,16 @@ def main() -> None:
             union, diff = normalize_pair(b, a, app_id, config)
             normalized.extend(union)
             changes.extend(diff)
+            segments.append(build_segment(b, a, app_id))
         except (OSError, ValueError, TypeError) as exc:
             errors.append({'file': name, 'reason': str(exc)})
 
     write_csv(args.out / 'normalized_union.csv', normalized)
     write_csv(args.out / 'comparison.csv', changes)
+    write_csv(args.out / 'segments.csv', segments)
+    write_csv(args.out / 'pivot_facts.csv', pivot_facts(changes))
+    with (args.out / 'summary.json').open('w', encoding='utf-8') as stream:
+        json.dump(summarize(changes, segments), stream, ensure_ascii=False, indent=2)
     with (args.out / 'issues.json').open('w', encoding='utf-8') as file:
         json.dump({'missing_before': missing_before, 'missing_after': missing_after, 'failed': errors}, file,
                   ensure_ascii=False, indent=2)
