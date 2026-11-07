@@ -21,6 +21,7 @@ export function resetMock(opts: Partial<MockOptions> = {}): void {
   timing.runPollMs = 5;
   timing.listPollMs = 5;
   timing.checkRunPollMs = 5;
+  timing.idleJournalPollMs = 5;
 }
 
 /** Creates a config with built-ins and drives the mock Run to COMPLETED. */

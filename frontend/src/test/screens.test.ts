@@ -151,6 +151,41 @@ describe("Explicit report context survives navigation", () => {
   });
 });
 
+describe("Later CheckRun events reach an already open monitor", () => {
+  async function laterCheckRun(runId: string, configId: string) {
+    const script = await testApi.createScript({ kind: "check", name: "late check", code: "CHECK = {}\n" });
+    const cfg = await testApi.configuration(configId);
+    let cr = await testApi.createCheckRun(runId, { checks: [...cfg.checks, { script_id: script.script_id }] }, `k-${Math.random()}`);
+    for (let i = 0; i < 10 && cr.status !== "COMPLETED"; i++) cr = await testApi.checkRun(cr.check_run_id);
+    return cr;
+  }
+
+  it("while the monitor stays open on a terminal Run", async () => {
+    resetMock({ customExecution: true });
+    const run = await completedRun();
+    const w = mnt(RunPage, { runId: run.run_id, tab: "monitor", query: new URLSearchParams() });
+    await waitFor(() => expect(text(w)).toContain("Run completed (MOCK)"));
+    await new Promise((r) => setTimeout(r, 30)); // polling has settled on the terminal Run
+    await laterCheckRun(run.run_id, run.config_id);
+    await waitFor(() => expect(text(w)).toContain("Check late check executed (MOCK)"), 2000);
+    w.unmount();
+  });
+
+  it("after leaving the monitor tab and coming back (same mounted RunPage)", async () => {
+    resetMock({ customExecution: true });
+    const run = await completedRun();
+    const w = mnt(RunPage, { runId: run.run_id, tab: "monitor", query: new URLSearchParams() });
+    await waitFor(() => expect(text(w)).toContain("Run completed (MOCK)"));
+    await w.setProps({ tab: "new-check" } as never);
+    await laterCheckRun(run.run_id, run.config_id);
+    await w.setProps({ tab: "monitor" } as never);
+    await waitFor(() => expect(text(w)).toContain("Check late check executed (MOCK)"), 2000);
+    const link = [...document.querySelectorAll("summary")].find((x) => x.textContent === "код check-06");
+    expect(link).toBeTruthy();
+    w.unmount();
+  });
+});
+
 describe("Progress", () => {
   it("never invents a percent when total is unknown", () => {
     const w = mnt(ProgressBar, { processed: 5, total: null });

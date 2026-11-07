@@ -48,11 +48,24 @@ watch(
   },
 );
 
+/** Explicitly chosen report travels with tab navigation (otherwise checks would fall back to the initial report). */
+const reportSuffix = computed(() => (props.query.get("report") ? `?report=${encodeURIComponent(props.query.get("report")!)}` : ""));
+const completed = computed(() => run.value?.status === "COMPLETED");
+const selected = computed<Tab>(
+  () => TABS.find(([t]) => t === props.tab)?.[0] ?? (completed.value && openedCompleted.value ? "summary" : "monitor"),
+);
+
 const backlog = ref(false);
 const active = computed(() => !run.value || run.value.status === "QUEUED" || run.value.status === "RUNNING" || backlog.value);
+/**
+ * A finished Run still gets new journal events from later CheckRuns, so while
+ * the monitor is visible the journal keeps refreshing (slower); entering the
+ * monitor restarts polling, which drains new events immediately.
+ */
+const onMonitor = computed(() => selected.value === "monitor" || !completed.value);
 usePolling(
-  () => active.value && !(error.value && !run.value),
-  () => timing.runPollMs,
+  () => (active.value || onMonitor.value) && !(error.value && !run.value),
+  () => (active.value ? timing.runPollMs : timing.idleJournalPollMs),
   async () => {
     const id = props.runId;
     try {
@@ -92,15 +105,9 @@ usePolling(
       if (props.runId === id) error.value = e;
     }
   },
-  () => props.runId,
+  () => `${props.runId}|${onMonitor.value}`,
 );
 
-/** Explicitly chosen report travels with tab navigation (otherwise checks would fall back to the initial report). */
-const reportSuffix = computed(() => (props.query.get("report") ? `?report=${encodeURIComponent(props.query.get("report")!)}` : ""));
-const completed = computed(() => run.value?.status === "COMPLETED");
-const selected = computed<Tab>(
-  () => TABS.find(([t]) => t === props.tab)?.[0] ?? (completed.value && openedCompleted.value ? "summary" : "monitor"),
-);
 </script>
 
 <template>
