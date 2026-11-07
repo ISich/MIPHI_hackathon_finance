@@ -162,22 +162,42 @@ describe("session bootstrap", () => {
     expect(order.filter((u) => u === "/api/session")).toHaveLength(1);
   });
 
-  it("does not bootstrap for non-/api paths and retries after a failed bootstrap", async () => {
+  it("does not bootstrap for non-/api paths", async () => {
     const order: string[] = [];
-    let failFirst = true;
+    const f = async (url: string) => (order.push(url), new Response(JSON.stringify({ ready: true }), { status: 200 }));
+    await new ApiClient(f, "", { bootstrapSession: true }).ready();
+    expect(order).toEqual(["/ready"]);
+  });
+
+  it("a failed bootstrap fails the waiting requests (never sends them cookie-less) and is retried next time", async () => {
+    const order: string[] = [];
+    let sessionFails = 1;
     const f = async (url: string) => {
       order.push(url);
-      if (url === "/api/session" && failFirst) {
-        failFirst = false;
-        throw new TypeError("network");
-      }
-      return new Response(JSON.stringify(url === "/ready" ? { ready: true } : []), { status: 200 });
+      if (url === "/api/session" && sessionFails-- > 0) throw new TypeError("network");
+      return new Response(JSON.stringify([]), { status: 200 });
     };
     const c = new ApiClient(f, "", { bootstrapSession: true });
-    await c.ready();
-    expect(order).toEqual(["/ready"]);
-    await c.datasets(); // bootstrap failed (network) → request still goes out
-    await c.datasets(); // bootstrap retried once
-    expect(order).toEqual(["/ready", "/api/session", "/api/datasets", "/api/session", "/api/datasets"]);
+    const results = await Promise.allSettled([c.datasets(), c.scripts()]);
+    expect(results.map((r) => r.status)).toEqual(["rejected", "rejected"]);
+    const err = (results[0] as PromiseRejectedResult).reason as ApiError;
+    expect(err.code).toBe("SESSION_UNAVAILABLE");
+    expect(order).toEqual(["/api/session"]); // nothing went out without a session
+    await c.datasets(); // bootstrap retried, then the request proceeds
+    expect(order).toEqual(["/api/session", "/api/session", "/api/datasets"]);
+  });
+
+  it("a non-2xx bootstrap answer is also a failure", async () => {
+    const order: string[] = [];
+    const f = async (url: string) => {
+      order.push(url);
+      return url === "/api/session"
+        ? new Response(JSON.stringify({ code: "INTERNAL_ERROR", message: "boom", details: {}, request_id: "r" }), { status: 500 })
+        : new Response("[]", { status: 200 });
+    };
+    const err: ApiError = await new ApiClient(f, "", { bootstrapSession: true }).datasets().catch((e) => e);
+    expect(err.code).toBe("SESSION_UNAVAILABLE");
+    expect(err.details).toMatchObject({ cause_code: "INTERNAL_ERROR" });
+    expect(order).toEqual(["/api/session"]);
   });
 });

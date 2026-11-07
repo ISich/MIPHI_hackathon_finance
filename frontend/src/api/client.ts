@@ -35,6 +35,7 @@ export const CODES = {
   CUSTOM_EXECUTION_DISABLED: "CUSTOM_EXECUTION_DISABLED",
   ANALYTICS_UNAVAILABLE: "ANALYTICS_UNAVAILABLE",
   NETWORK: "NETWORK_ERROR",
+  SESSION_UNAVAILABLE: "SESSION_UNAVAILABLE",
   BAD_RESPONSE: "BAD_RESPONSE",
 } as const;
 
@@ -141,12 +142,24 @@ export class ApiClient {
     private readonly options: ApiClientOptions = {},
   ) {}
 
+  /**
+   * One shared bootstrap. On failure every waiting request fails with
+   * SESSION_UNAVAILABLE (nothing is sent without a session, otherwise the
+   * parallel-session race returns) and the next request retries the bootstrap.
+   */
   private ensureSession(): Promise<void> {
     if (!this.session) {
       this.session = this.raw<unknown>("GET", "/api/session").then(
         () => undefined,
-        () => {
-          this.session = null; // retry on the next request; the request itself reports errors
+        (e: unknown) => {
+          this.session = null;
+          const cause = e instanceof ApiError ? e : null;
+          throw new ApiError(cause?.status ?? 0, {
+            code: CODES.SESSION_UNAVAILABLE,
+            message: "Не удалось открыть сессию на сервере: " + (e instanceof Error ? e.message : String(e)),
+            details: cause ? { cause_code: cause.code, cause_status: cause.status } : {},
+            request_id: cause?.requestId,
+          });
         },
       );
     }
