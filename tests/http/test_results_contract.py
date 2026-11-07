@@ -149,3 +149,74 @@ def test_two_sessions_run_concurrently_without_mixing(base_url, fixture_root):
     assert results["A"][0] == results["B"][0] == "COMPLETED"
     assert (results["A"][1]["total_apps"], results["A"][1]["changed_apps"]) == (6, 5)
     assert (results["B"][1]["total_apps"], results["B"][1]["changed_apps"]) == (3, 0)
+
+
+@pytest.mark.parametrize("dimensions", [("SOURCE",), ("SOURCE", "CHANGE_TYPE")])
+def test_filtered_pivot_matches_application_attributes_and_all_members(api_a, events_run, dimensions):
+    """Strict acceptance: overlapping attribute facts must count each application once.
+
+    Reconstruct expected memberships from application cards, independently of pivot
+    counts/locators. No analytics-unavailable xfail is permitted in this test.
+    """
+    from collections import defaultdict
+
+    rid = events_run["run"]["run_id"]
+    expected = defaultdict(set)
+    for app_id in [f"EV0{i}" for i in range(1, 7)]:
+        response = api_a.get(f"/api/runs/{rid}/applications/{app_id}")
+        assert response.status_code == 200, response.text[:300]
+        card = response.json()
+        assert card["run_id"] == rid
+        for row in card["comparison"]:
+            if row["DIFF_FLAG"] != 1:
+                continue
+            for source in ("BEFORE", "AFTER"):
+                if (source == "BEFORE" and row["CHANGE_TYPE"] == "ATTRIBUTE_NEW") or (
+                    source == "AFTER" and row["CHANGE_TYPE"] == "ATTRIBUTE_LOST"
+                ):
+                    continue
+                coordinates = {"SOURCE": source, "CHANGE_TYPE": row["CHANGE_TYPE"]}
+                expected[tuple(coordinates[d] for d in dimensions)].add(app_id)
+    assert expected, "events fixture must contain changed attributes"
+
+    cells = []
+    total = None
+    for offset in range(0, len(expected) + 2, 2):
+        response = api_a.post(f"/api/runs/{rid}/pivot", {
+            "dimensions": list(dimensions), "filters": {"DIFF_FLAG": 1}, "limit": 2, "offset": offset,
+        }, key=None)
+        assert response.status_code == 200, response.text[:300]
+        page = response.json()
+        assert page["run_id"] == rid
+        assert page["data_revision"] == events_run["run"]["dataset_revision_id"]
+        assert page["limit"] == 2 and page["offset"] == offset
+        assert page["total"] == len(expected)
+        total = page["total"]
+        assert len(page["items"]) <= 2
+        if offset >= total:
+            assert page["items"] == []
+        cells.extend(page["items"])
+    assert len(cells) == total == len(expected)
+    seen = set()
+    for cell in cells:
+        assert set(cell["dimensions"]) == set(dimensions)
+        coordinates = tuple(cell["dimensions"][d] for d in dimensions)
+        assert coordinates not in seen
+        seen.add(coordinates)
+        wanted = sorted(expected[coordinates])
+        assert type(cell["cnt"]) is int and cell["cnt"] == len(wanted)
+        assert isinstance(cell["group_locator"], str) and cell["group_locator"]
+        members = []
+        for offset in range(0, len(wanted) + 2, 2):
+            response = api_a.get(f"/api/runs/{rid}/groups/{cell['group_locator']}/applications",
+                                 params={"limit": 2, "offset": offset})
+            assert response.status_code == 200, response.text[:300]
+            page = response.json()
+            assert page["run_id"] == rid
+            assert page["data_revision"] == events_run["run"]["dataset_revision_id"]
+            assert page["total"] == len(wanted)
+            assert page["limit"] == 2 and page["offset"] == offset
+            assert page["items"] == wanted[offset:offset + 2]
+            members.extend(page["items"])
+        assert members == wanted
+    assert seen == set(expected)
