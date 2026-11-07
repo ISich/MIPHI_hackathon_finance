@@ -1,0 +1,81 @@
+"""Owner isolation of two sessions (FR-016, NFR-005, AC-17, api.md 'Owner scope на каждом route')."""
+from __future__ import annotations
+
+import pytest
+
+from support.http_api import assert_envelope
+
+
+@pytest.fixture(scope="module")
+def a_entities(api_a, completed_example_run):
+    run = completed_example_run["final"]
+    script = api_a.script("check", "def run(mart, params=None):\n    return []\n")
+    assert script.status_code == 201, script.text
+    return {"run": run, "config": completed_example_run["config"], "dataset": completed_example_run["dataset"],
+            "script": script.json()}
+
+
+def _foreign_urls(e):
+    run_id, rep = e["run"]["run_id"], e["run"]["initial_report_id"]
+    cr = e["run"]["initial_check_run_id"]
+    return [
+        f"/api/runs/{run_id}", f"/api/runs/{run_id}/events", f"/api/runs/{run_id}/code/normalize",
+        f"/api/runs/{run_id}/summary", f"/api/runs/{run_id}/artifacts", f"/api/runs/{run_id}/checks",
+        f"/api/runs/{run_id}/reports", f"/api/runs/{run_id}/pivot-facts",
+        f"/api/runs/{run_id}/applications/I32554354", f"/api/check-runs/{cr}",
+        f"/api/reports/{rep}", f"/api/reports/{rep}/checks", f"/api/reports/{rep}/checks.html",
+        f"/api/configurations/{e['config']['config_id']}", f"/api/scripts/{e['script']['script_id']}",
+        f"/api/datasets/{e['dataset']['dataset_id']}",
+    ]
+
+
+def test_sessions_are_distinct(api_a, api_b):
+    api_a.session(), api_b.session()
+    assert api_a.http.cookies.get("dd_session") != api_b.http.cookies.get("dd_session")
+
+
+def test_foreign_ids_are_hidden_as_not_found(api_a, api_b, a_entities):
+    for url in _foreign_urls(a_entities):
+        assert api_a.get(url).status_code == 200, url
+        fake = url.replace(a_entities["run"]["run_id"], "run_doesnotexist")
+        r = api_b.get(url)
+        assert r.status_code == 404, (url, r.status_code, r.text[:200])
+        if url != fake:  # same answer as a nonexistent id: existence is not leaked
+            assert api_b.get(fake).status_code == 404
+
+
+def test_foreign_entities_not_listed(api_a, api_b, a_entities):
+    runs_b = api_b.get("/api/runs", params={"limit": 200}).json()
+    assert a_entities["run"]["run_id"] not in {r["run_id"] for r in runs_b["items"]}
+    assert a_entities["config"]["config_id"] not in {c["config_id"] for c in api_b.get("/api/configurations").json()}
+    assert a_entities["script"]["script_id"] not in {s["script_id"] for s in api_b.get("/api/scripts").json()}
+    assert a_entities["dataset"]["dataset_id"] not in {d["dataset_id"] for d in api_b.get("/api/datasets").json()}
+
+
+def test_foreign_config_cannot_be_run_or_mutated(api_a, api_b, a_entities):
+    assert_envelope(api_b.start_run(a_entities["config"]["config_id"]), 404)
+    sid = a_entities["script"]["script_id"]
+    assert_envelope(api_b.put(f"/api/scripts/{sid}", {"code": "x = 1\n"}), 404)
+    assert_envelope(api_b.post(f"/api/runs/{a_entities['run']['run_id']}/check-runs", {"checks": []}), 404)
+    assert api_a.get(f"/api/scripts/{sid}").json()["revision"] == a_entities["script"]["revision"]
+
+
+def test_foreign_script_cannot_be_referenced_in_own_config(api_b, a_entities, examples_root):
+    ds = api_b.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
+    r = api_b.post("/api/configurations", {"name": "steal", "dataset_id": ds["dataset_id"],
+                                           "checks": [{"script_id": a_entities["script"]["script_id"]}]}, key=None)
+    assert_envelope(r, (404, 422))
+
+
+def test_owner_from_body_or_header_is_ignored(api_b, a_entities):
+    r = api_b.get(f"/api/runs/{a_entities['run']['run_id']}", headers={"x-owner-id": "anything", "x-user-id": "a"})
+    assert r.status_code == 404
+    body = {"configuration_id": a_entities["config"]["config_id"], "owner_id": "x"}
+    assert_envelope(api_b.post("/api/runs", body), 422)
+
+
+def test_forged_cookie_gets_fresh_owner(base_url, a_entities):
+    import httpx
+
+    with httpx.Client(base_url=base_url, cookies={"dd_session": "forged-token"}) as c:
+        assert c.get(f"/api/runs/{a_entities['run']['run_id']}").status_code == 404
