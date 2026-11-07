@@ -247,6 +247,10 @@ def _install_openapi(app: FastAPI) -> None:
                     resp["content"] = {"application/json": {"schema": ref}}
                     if status == "422":
                         resp["description"] = "VALIDATION_ERROR envelope"
+                    elif status == "413":
+                        # http.HTTPStatus renamed this phrase in Python 3.13; pin it so the
+                        # committed snapshot does not depend on the interpreter version.
+                        resp["description"] = "Content Too Large"
         schemas = spec.setdefault("components", {}).setdefault("schemas", {})
         for name in ("HTTPValidationError", "ValidationError"):
             schemas.pop(name, None)
