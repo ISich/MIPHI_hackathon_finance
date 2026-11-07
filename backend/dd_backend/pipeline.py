@@ -8,6 +8,7 @@ CHECKING and FINALIZING are executed by the worker after this process succeeds.
 from __future__ import annotations
 
 import csv
+import errno
 import hashlib
 import importlib.util
 import json
@@ -262,18 +263,33 @@ def run(run_dir: Path, emit: Emitter) -> dict:
     return {"summary": summary, "artifacts": artifacts}
 
 
+def _is_file_too_large(exc: BaseException | None) -> bool:
+    """RLIMIT_FSIZE hit (Python ignores SIGXFSZ, so writes fail with EFBIG)."""
+    for _ in range(10):
+        if exc is None:
+            return False
+        if (isinstance(exc, OSError) and exc.errno == errno.EFBIG) or "File too large" in str(exc):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 def main() -> int:
     run_dir = Path(sys.argv[1])
     emit = Emitter(int(sys.argv[2]))
     try:
         result = run(run_dir, emit)
-    except StageFailure as exc:
-        emit.send(type="error", code=exc.code, message=exc.message, traceback=traceback.format_exc(limit=8))
-        return 2
-    except MemoryError:
-        emit.send(type="error", code="MEMORY_LIMIT", message="Memory limit exceeded", traceback="")
-        return 3
     except Exception as exc:
+        if _is_file_too_large(exc):
+            emit.send(type="error", code="OUTPUT_LIMIT", message="Output file size limit exceeded (DD_MAX_OUTPUT_BYTES)",
+                      traceback="")
+            return 5
+        if isinstance(exc, MemoryError):
+            emit.send(type="error", code="MEMORY_LIMIT", message="Memory limit exceeded", traceback="")
+            return 3
+        if isinstance(exc, StageFailure):
+            emit.send(type="error", code=exc.code, message=exc.message, traceback=traceback.format_exc(limit=8))
+            return 2
         emit.send(type="error", code="PIPELINE_ERROR", message=f"{type(exc).__name__}: {exc}",
                   traceback=traceback.format_exc(limit=8))
         return 4

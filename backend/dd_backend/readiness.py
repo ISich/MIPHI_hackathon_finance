@@ -64,12 +64,26 @@ def readiness(settings: Settings, db: Database) -> dict[str, Any]:
         return {"_ok": bool(status) and all(status.values()), "roots": status}
 
     def worker():
-        row = db.one("SELECT worker_id, heartbeat_at FROM workers ORDER BY heartbeat_at DESC LIMIT 1")
-        if row is None:
-            return {"_ok": False, "reason": "no worker heartbeat"}
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(row["heartbeat_at"].replace("Z", "+00:00"))).total_seconds()
-        return {"_ok": age <= settings.worker_lease_seconds, "heartbeat_age_seconds": round(age, 1),
-                "embedded": settings.embedded_worker}
+        import os
+        import socket
+        host = socket.gethostname()
+        alive = []
+        for row in db.all("SELECT worker_id, pid, hostname, heartbeat_at FROM workers"):
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(row["heartbeat_at"].replace("Z", "+00:00"))).total_seconds()
+            if age > settings.worker_lease_seconds:
+                continue
+            if row["hostname"] == host:
+                try:
+                    os.kill(row["pid"], 0)
+                except ProcessLookupError:
+                    continue
+                except PermissionError:
+                    pass
+            alive.append(round(age, 1))
+        if not alive:
+            return {"_ok": False, "reason": "no live worker (heartbeat stale or process gone)",
+                    "embedded": settings.embedded_worker}
+        return {"live_workers": len(alive), "heartbeat_age_seconds": min(alive), "embedded": settings.embedded_worker}
 
     checks_list = [
         _check("database", database),

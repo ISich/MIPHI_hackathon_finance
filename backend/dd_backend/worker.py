@@ -36,6 +36,12 @@ from .settings import BACKEND_DIR, Settings
 log = logging.getLogger("dd_backend.worker")
 
 POLL_SECONDS = 0.2
+PR_SET_PDEATHSIG = 1
+try:
+    import ctypes
+    _LIBC = ctypes.CDLL("libc.so.6", use_errno=True) if sys.platform.startswith("linux") else None
+except OSError:  # pragma: no cover
+    _LIBC = None
 HEARTBEAT_SECONDS = 2.0
 
 
@@ -227,6 +233,8 @@ class Worker:
             resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
             resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
             os.umask(0o077)
+            if _LIBC is not None:  # Linux: child dies with the worker instead of running orphaned
+                _LIBC.prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
         return apply
 
     def _kill_child(self) -> None:
