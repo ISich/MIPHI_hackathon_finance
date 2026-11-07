@@ -11,7 +11,9 @@
 | `tests/http/` | Black-box HTTP: health/ready/openapi, асинхронный Run, изоляция владельцев, path traversal, снимки, идентичность отчётов, FAIL / ошибка исполнения / 0 строк, user code | запущенный backend на loopback (`QA_BASE_URL`) |
 | `tests/restart/` | Run, прерванный SIGKILL сервера | `QA_BACKEND_DIR` (тест сам поднимает и гасит свой сервер) |
 | `tests/selftest/` | Проверка самих тестов: лаунчеры (относительные пути, занятый порт, несовпадение режима) и мутационные selftests — тест обязан упасть, когда настоящий backend стоит за прокси, вносящим ровно тот дефект, который тест должен ловить | `QA_BACKEND_DIR` |
-| `tests/support/mutating_proxy.py` | **TEST DOUBLE**: прокси перед настоящим backend с одной именованной мутацией. Используется только в `tests/selftest`, доказательством поведения backend не является | — |
+| `tests/support/mutating_proxy.py` | **TEST DOUBLE**: прокси перед настоящим backend с одной именованной мутацией (`summary_200_while_running`, `pivot_500`, `trust_owner_header`, `lie_mode_builtin`, `stuck_running`, `checks_garbage_while_running`, `shared_owner_for_query`, `refuse_custom_config`). Используется только в `tests/selftest`, доказательством поведения backend не является | — |
+| `tests/support/fs_probe.py` | Граница для проверки upload: внутри `DD_HOME` хранение разрешено; копия у любого предка `DD_HOME` (цели `../`) или в остальном рабочем каталоге запрещена | — |
+| `tests/support/backend_proc.py` | Запуск реального backend для restart/selftest: порт должен быть свободен; `/health` засчитывается, только когда сокет принадлежит запущенному PID; режим проверяется через `/api/session` | `QA_BACKEND_DIR` |
 | `tests/support/fixtures.py` | Синтетические ответы СПР и прогон **настоящего** конвейера: CLI ядра → D4 storage → DuckDBMart | — |
 | `scripts/fetch_core_checks.sh` | Выкладывает 5 checks и examples из pinned commit (`git archive`) в `.cache/` | git, доступ к origin |
 | `scripts/make_http_fixtures.py DIR` | Наборы `neutral`, `events`, `broken`, `badjson` и symlink `escape` для HTTP-тестов | — |
@@ -58,4 +60,4 @@ scripts/qa_servers_alive.sh                # должно ничего не вы
 
 ## Переменные
 
-`CORE_SHA` (по умолчанию 496d8cd…), `CORE_CHECKS_DIR`, `QA_BASE_URL`, `QA_FIXTURE_ROOT`, `QA_FIXTURE_DIR`, `QA_EXAMPLES_ROOT` (по умолчанию `examples`), `QA_RUN_TIMEOUT` (по умолчанию 300 с), `QA_BACKEND_DIR`, `QA_PORT` (по умолчанию 18765), `BACKEND_PY`.
+`CORE_SHA` (по умолчанию 496d8cd…), `CORE_CHECKS_DIR`, `QA_BASE_URL`, `QA_FIXTURE_ROOT`, `QA_FIXTURE_DIR`, `QA_EXAMPLES_ROOT` (по умолчанию `examples`), `QA_RUN_TIMEOUT` (по умолчанию 300 с; ограничивает и ожидание Run, и цикл readiness-теста), `QA_BACKEND_DIR`, `QA_PORT` (по умолчанию 18765), `BACKEND_PY`.
