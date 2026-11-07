@@ -268,8 +268,13 @@ class Worker:
 
     # ------------------------------------------------------- child process
     def _sanitize(self, text: str) -> str:
-        for real, alias in ((str(self.settings.runs_dir), "<runs>"), (str(self.settings.home), "<home>"),
-                            (sys.prefix, "<venv>"), (str(BACKEND_DIR), "<backend>"), (str(Path.home()), "<user-home>")):
+        pairs: list[tuple[str, str]] = [(str(self.settings.runs_dir), "<runs>"), (str(self.settings.home), "<home>"),
+                                        (sys.prefix, "<venv>"), (str(BACKEND_DIR), "<backend>"),
+                                        (str(Path.home()), "<user-home>")]
+        for name, root in self.settings.data_roots.items():
+            pairs += [(str(root), f"<root:{name}>"), (str(root.resolve()), f"<root:{name}>")]
+        pairs += [(str(self.settings.checks_dir), "<checks>"), (str(self.settings.checks_dir.resolve()), "<checks>")]
+        for real, alias in sorted({p for p in pairs if p[0] not in ("", "/")}, key=lambda p: -len(p[0])):
             text = text.replace(real, alias)
         return text
 
