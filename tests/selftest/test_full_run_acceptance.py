@@ -27,7 +27,9 @@ def _full(executions=None, completeness="COMPLETE", status="PUBLISHED", **over):
            "checks": {"completeness": completeness,
                       "executions": _ok(IDS) if executions is None else executions},
            "cli": {"returncode": 0}, "api_summary": dict(SUMMARY), "cli_summary": dict(SUMMARY),
-           "http_errors": []}
+           "http_errors": [], "cli_issues": {"missing_before": [], "missing_after": [], "failed": []},
+           "files": {"BEFORE_MASTER": 2, "AFTER_BETA": 2},
+           "dataset_revision": {"pairs": 2, "missing_before": [], "missing_after": []}}
     rep.update(over)
     return rep
 
@@ -77,4 +79,23 @@ def test_http_errors_are_rejected():
 
 
 def test_zero_total_apps_is_rejected():
-    _only(fdr.acceptance_problems(_full(api_summary={**SUMMARY, "total_apps": 0}), IDS), "total_apps")
+    problems = fdr.acceptance_problems(_full(api_summary={**SUMMARY, "total_apps": 0}), IDS)
+    assert problems and all("total_apps" in p for p in problems), problems
+
+
+def test_partial_dataset_is_rejected():
+    """CR5 #1: CLI exits 0 and summaries agree, but only the surviving pairs were processed."""
+    issues = {"missing_before": [], "missing_after": ["P2.json"], "failed": [{"file": "P3.json", "reason": "bad"}]}
+    problems = fdr.acceptance_problems(_full(cli_issues=issues), IDS)
+    assert any("missing_after" in p for p in problems) and any("failed" in p for p in problems)
+
+
+def test_totals_must_match_input_pairs():
+    problems = fdr.acceptance_problems(_full(files={"BEFORE_MASTER": 3, "AFTER_BETA": 3},
+                                             dataset_revision={"pairs": 3, "missing_before": [], "missing_after": []}),
+                                       IDS)
+    assert problems and all("!= input pairs 3" in p for p in problems), problems
+    assert fdr.acceptance_problems(_full(files={"BEFORE_MASTER": 2, "AFTER_BETA": 1}), IDS)
+    assert fdr.acceptance_problems(_full(dataset_revision={"pairs": 2, "missing_before": [],
+                                                           "missing_after": ["X"]}), IDS)
+    assert fdr.acceptance_problems(_full(cli_issues=None), IDS)

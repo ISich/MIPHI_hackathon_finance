@@ -44,6 +44,28 @@ def acceptance_problems(report: dict, expected_check_ids: set[str]) -> list[str]
             problems.append(f"{side} missing {missing}")
         elif not (isinstance(values["total_apps"], int) and values["total_apps"] > 0):
             problems.append(f"{side} total_apps invalid {values['total_apps']!r}")
+    # CR5 #1: a matching API/CLI summary over a SUBSET of the input is not acceptance.
+    issues = report.get("cli_issues")
+    if not isinstance(issues, dict):
+        problems.append("core CLI issues.json missing")
+    else:
+        for key in ("missing_before", "missing_after", "failed"):
+            if issues.get(key) != []:
+                problems.append(f"input diagnostics {key}={str(issues.get(key))[:200]}")
+    files = report.get("files") or {}
+    n_before, n_after = files.get("BEFORE_MASTER"), files.get("AFTER_BETA")
+    if not (isinstance(n_before, int) and n_before > 0 and n_before == n_after):
+        problems.append(f"input file counts BEFORE={n_before!r} AFTER={n_after!r}")
+    revision = report.get("dataset_revision") or {}
+    if revision.get("pairs") != n_before or revision.get("missing_before") or revision.get("missing_after"):
+        problems.append(f"dataset revision pairs={revision.get('pairs')!r} missing="
+                        f"{revision.get('missing_before')!r}/{revision.get('missing_after')!r} vs files {n_before!r}")
+    for side in ("api_summary", "cli_summary"):
+        total = (report.get(side) or {}).get("total_apps")
+        if isinstance(total, int) and total != n_before:
+            problems.append(f"{side} total_apps={total} != input pairs {n_before}")
+    if (report.get("api_summary") or {}).get("pairs") not in (None, n_before):
+        problems.append(f"api pairs={report['api_summary']['pairs']} != input pairs {n_before}")
     if report.get("http_errors"):
         problems.append(f"HTTP errors {report['http_errors']}")
     if report.get("run", {}).get("status") != "COMPLETED":
