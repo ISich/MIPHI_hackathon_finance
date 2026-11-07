@@ -37,19 +37,24 @@ export DD_RUN_TIMEOUT_SECONDS="${DD_RUN_TIMEOUT_SECONDS:-120}" DD_CHECK_TIMEOUT_
 PID=$!
 cleanup() { kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; echo "server log: $WORK/server.log"; }
 trap cleanup EXIT
+# CR3 #6: every request has connect/total deadlines and the whole startup has an overall deadline.
+STARTUP_TIMEOUT="${QA_STARTUP_TIMEOUT:-60}"
+CURL=(curl -fsS --connect-timeout 2 --max-time 5)
+DEADLINE=$((SECONDS + STARTUP_TIMEOUT))
 UP=0
-for _ in $(seq 1 100); do
+while [ "$SECONDS" -lt "$DEADLINE" ]; do
   kill -0 "$PID" 2>/dev/null || { cat "$WORK/server.log" >&2; echo "backend exited during startup" >&2; exit 1; }
-  if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then UP=1; break; fi
+  if "${CURL[@]}" "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then UP=1; break; fi
   sleep 0.2
 done
-[ "$UP" = 1 ] || { echo "backend did not become healthy" >&2; exit 1; }
+[ "$UP" = 1 ] || { echo "backend did not become healthy within ${STARTUP_TIMEOUT}s" >&2; exit 1; }
 # Identity: the launched process must still be alive and must own the listening socket on PORT (CR #2).
 kill -0 "$PID" 2>/dev/null || { cat "$WORK/server.log" >&2; echo "launched backend died; port $PORT answered by another process" >&2; exit 1; }
 if ! ss -ltnpH "sport = :$PORT" 2>/dev/null | grep -q "pid=$PID,"; then
   echo "port $PORT is not owned by launched pid $PID; refusing to test another server" >&2; exit 1
 fi
-REPORTED="$(curl -fsS "http://127.0.0.1:$PORT/api/session" | "$QA_PY" -c 'import json,sys; print(json.load(sys.stdin)["execution_mode"])')"
+REPORTED="$("${CURL[@]}" "http://127.0.0.1:$PORT/api/session" | "$QA_PY" -c 'import json,sys; print(json.load(sys.stdin)["execution_mode"])')" \
+  || { echo "/api/session did not answer within the request deadline" >&2; exit 1; }
 [ "$REPORTED" = "$MODE" ] || { echo "server reports execution_mode=$REPORTED, expected $MODE" >&2; exit 1; }
 echo "backend pid=$PID mode=$MODE home=$DD_HOME"
 # QA_FORCE_EXPECTED_MODE is a self-test hook only (tests/selftest): it must make the suite fail.

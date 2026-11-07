@@ -111,3 +111,33 @@ def test_start_backend_verifies_execution_mode_and_socket_owner(tmp_path):
         assert backend.mode == "trusted-local" and backend.proc.poll() is None
     finally:
         backend.stop()
+
+
+STALLING_BACKEND = """#!/usr/bin/env python3
+# TEST DOUBLE for the launcher self-test: binds the requested port, accepts connections, never answers.
+import socket, sys, time
+port = int(sys.argv[sys.argv.index("--port") + 1])
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", port)); s.listen(50)
+held = []
+while True:
+    conn, _ = s.accept(); held.append(conn)
+"""
+
+
+def test_run_http_suite_startup_is_bounded_when_backend_stalls(tmp_path):
+    """CR3 #6: a process that accepts connections but never responds must not hang the launcher."""
+    import time
+
+    fake = tmp_path / "stalling_python"
+    fake.write_text(STALLING_BACKEND)
+    fake.chmod(0o755)
+    started = time.monotonic()
+    try:
+        proc = _suite("builtin-only", "tests/http/test_system.py", "-q", "-k", "health",
+                      env_extra={"BACKEND_PY": str(fake), "QA_STARTUP_TIMEOUT": "20"}, timeout=150)
+    except subprocess.TimeoutExpired:
+        pytest.fail("run_http_suite.sh hung on a stalling backend (no curl/startup deadline)")
+    assert proc.returncode != 0
+    assert "passed" not in proc.stdout
+    assert time.monotonic() - started < 120
