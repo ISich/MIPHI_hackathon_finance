@@ -15,6 +15,19 @@ MartAPI, BaseFacts/PivotRollup, checks, HTML-отчёт) здесь **не** л�
 | `tests/`, `scripts/`, `requirements-qa.txt`, `pytest.ini` | QA: контракты ядра, black-box HTTP, restart, selftests, полный прогон | [docs/qa/README.md](docs/qa/README.md) |
 | `docs/qa/` | Матрица трассировки требований и review-заметки | [requirements-traceability.md](docs/qa/requirements-traceability.md) |
 
+## Проектная документация
+
+Исходные требования и контракты (зафиксированы до реализации; при расхождении с кодом приоритет у кода и README модулей):
+
+- [Навигация по docs](docs/README.md)
+- [Базовый PRD 0.3](docs/PRD.md)
+- [Разделение ролей](docs/team.md)
+- [Архитектура и границы каталогов](docs/architecture.md)
+- [Контракты API](docs/contracts/api.md), [данных](docs/contracts/data.md), [исполнения](docs/contracts/execution.md)
+- [План интеграции](docs/integration-plan.md) и [приёмка](docs/quality/acceptance.md)
+- [Существующее ядро и стыки интеграции](docs/implementation-status.md)
+- [Вопросы](docs/questions.md) и [реестр решений](docs/decisions.md)
+
 ## Закрепление ядра
 
 Ядро закреплено на `421da26caf030ce230778ffbd07ee1f72bf71217` в трёх местах, которые должны совпадать:
