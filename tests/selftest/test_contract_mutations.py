@@ -37,7 +37,7 @@ def test_cr11_unused_timeout_parameter_does_not_satisfy_timeout_test():
 
 
 def test_cr2_1_drilldown_tests_accept_the_target_contract(monkeypatch, tmp_path):
-    """CR2 #1: if D4 returns the data.md contract {items, total}, BOTH drill-down tests must pass.
+    """CR2 #1: if the legacy D4 drill-down returns the data.md contract {items, total}, the fact test must pass.
     The pre-fix fact test compared len(response) with CNT and would fail on a correct dict response."""
     from contracts import test_mart_contract as mart_tests
     from decision_diff.mart import DuckDBMart
@@ -54,7 +54,6 @@ def test_cr2_1_drilldown_tests_accept_the_target_contract(monkeypatch, tmp_path)
     monkeypatch.setattr(DuckDBMart, "pivot_app_ids", paged)
     with DuckDBMart(run.db) as mart:
         mart_tests.test_pivot_drilldown_matches_fact_cnt(mart)
-        mart_tests.test_pivot_drilldown_returns_full_distinct_total(mart)  # no xfail: defect absent
         fact = [f for f in mart.pivot(limit=100000) if f["CNT"] not in (2,)][0]  # len(dict)==2 keys
         group = {k: fact[k] for k in ("PATH", "ARRAY_KEY", "VALUE_ADJUSTED", "DIFF_FLAG", "SOURCE")}
         assert len(mart.pivot_app_ids(group, limit=10000)) != fact["CNT"]  # the old assertion would fail here

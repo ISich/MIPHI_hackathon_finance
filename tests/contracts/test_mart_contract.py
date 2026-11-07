@@ -193,11 +193,37 @@ def _expected_members(mart, fact):
                    if r[side] == fact["VALUE_ADJUSTED"] and r["CHANGE_TYPE"] != absent})
 
 
-def test_pivot_drilldown_returns_full_distinct_total(mart):
-    items, total = drilldown_page(mart.pivot_app_ids({"SOURCE": "BEFORE", "PATH": SCORE}, limit=1))
-    assert len(items) == 1
-    known_defect(total is None, "DISC-03: pivot_app_ids returns a page without full distinct total (data.md)")
-    assert total == 4
+@pytest.fixture()
+def rollup(run, tmp_path):
+    """D4 data.md port (core >= 421da26): BaseFacts/BaseMembership + server rollup on a private writable copy."""
+    import shutil
+
+    import duckdb
+
+    from decision_diff.base_facts import materialize_base_facts
+    from decision_diff.pivot_rollup import PivotRollup
+
+    db = tmp_path / "mart.duckdb"
+    shutil.copy(run.db, db)
+    con = duckdb.connect(str(db))
+    materialize_base_facts(con)
+    yield PivotRollup(con, run_id="run_qa", data_revision="rev_qa", signing_secret=b"qa-secret"), con
+    con.close()
+
+
+def test_pivot_drilldown_returns_full_distinct_total(rollup, mart):
+    """data.md level 2 (was DISC-03 against the legacy DuckDBMart.pivot_app_ids page): members() returns a page
+    plus the FULL distinct total, equal to the independently computed APP_ID set; out-of-range keeps the total."""
+    pivot, _ = rollup
+    cells = pivot.cells(dimensions=["PATH"], filters={"PATH": SCORE})["items"]
+    assert len(cells) == 1
+    expected = sorted({r["APP_ID"] for r in mart.rows(path=SCORE)})
+    assert cells[0]["cnt"] == len(expected) == 4
+    page = pivot.members(cells[0]["group_locator"], limit=1)
+    assert page["total"] == 4 and len(page["items"]) == 1
+    assert pivot.members(cells[0]["group_locator"], limit=50)["items"] == expected
+    beyond = pivot.members(cells[0]["group_locator"], limit=1, offset=10)
+    assert beyond["items"] == [] and beyond["total"] == 4
 
 
 def test_pivot_drilldown_matches_fact_cnt(mart):
@@ -213,8 +239,14 @@ def test_pivot_drilldown_matches_fact_cnt(mart):
             assert total == fact["CNT"]
 
 
-def test_base_facts_have_change_type_dimension(mart):
-    fact = mart.pivot(limit=1)[0]
-    assert {"PATH", "SOURCE", "CNT"} <= set(fact)
-    known_defect("CHANGE_TYPE" not in fact,
-                 "DISC-04: pivot_facts has no CHANGE_TYPE/segments dimensions, no BaseMembership (data.md level 1)")
+def test_base_facts_have_change_type_dimension(rollup, mart):
+    """data.md level 1 (was DISC-04 against legacy pivot_facts): BaseFacts carry CHANGE_TYPE (and segment
+    dimensions), CNT == |BaseMembership| per fact, and a CHANGE_TYPE cell matches comparison rows."""
+    pivot, con = rollup
+    columns = {r[0] for r in con.execute("DESCRIBE base_facts").fetchall()}
+    assert {"CHANGE_TYPE", "SOURCE", "DIFF_FLAG", "PATH", "DECISION_CHANGED", "CNT"} <= columns
+    bad = con.execute("SELECT COUNT(*) FROM base_facts f JOIN (SELECT fact_id, COUNT(DISTINCT APP_ID) n "
+                      "FROM base_membership GROUP BY fact_id) m USING (fact_id) WHERE f.CNT <> m.n").fetchone()[0]
+    assert bad == 0
+    lost = pivot.cells(dimensions=["CHANGE_TYPE"], filters={"CHANGE_TYPE": "ATTRIBUTE_LOST"})["items"]
+    assert [c["cnt"] for c in lost] == [len(mart.app_ids(change_type="ATTRIBUTE_LOST"))]
