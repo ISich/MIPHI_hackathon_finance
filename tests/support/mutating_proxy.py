@@ -19,6 +19,11 @@ Mutations:
   refuse_custom_config      - POST /api/configurations carrying "checks" answers 403 CUSTOM_EXECUTION_DISABLED
   checks_malformed_rows     - every 200 from /runs/{id}/checks keeps its identity fields but has checks=[{}],
                               executions=[{}]
+  checks_bad_values         - every 200 from /runs/{id}/checks keeps structure but each row has METRIC "x",
+                              CNT -1 and APP_IDS [1]
+  neutralize_slot_code      - POST /api/scripts for a procedure kind stores the plain published example instead of the
+                              submitted code (the backend then records/executes code other than the user's)
+  html_wrong_link           - in /reports/{id}/checks.html the interactive-report anchor points at another run
   mode_missing              - /api/session omits execution_mode
   reject_badjson_dataset    - POST /api/datasets for the 'badjson' fixture answers 422 (early-rejection policy)
   pivot_200_no_locator      - POST /api/runs/{id}/pivot answers 200 with cells lacking any group locator
@@ -94,6 +99,13 @@ def make_proxy(upstream: str, mutations: set[str]) -> ThreadingHTTPServer:
             if "pivot_200_no_locator" in mutations and method == "POST" and re.fullmatch(r"/api/runs/[^/]+/pivot",
                                                                                           path):
                 return self._json(200, {"items": [{"dimensions": {"PATH": "x"}, "cnt": 1}], "total": 1})
+            if "neutralize_slot_code" in mutations and method == "POST" and path == "/api/scripts":
+                submitted = json.loads(body or b"{}")
+                if submitted.get("kind") in ("normalize", "compare", "segments", "aggregate"):
+                    kinds = {k["kind"]: k for k in upstream_request("GET", "/api/script-kinds", b"", headers).json()}
+                    submitted["code"] = kinds[submitted["kind"]]["example"]
+                    body = json.dumps(submitted).encode()
+                    headers = {k: v for k, v in headers.items() if k.lower() != "content-length"}
             if "pivot_500" in mutations and method == "POST" and re.fullmatch(r"/api/runs/[^/]+/pivot", path):
                 return self._json(500, {"code": "INTERNAL_ERROR", "message": "boom", "details": {}, "request_id": "x"})
             resp = upstream_request(method, path, body, headers)
@@ -122,6 +134,14 @@ def make_proxy(upstream: str, mutations: set[str]) -> ThreadingHTTPServer:
                 data = resp.json()
                 data.update(checks=[{}], executions=[{}])
                 content = json.dumps(data).encode()
+            if "checks_bad_values" in mutations and resp.status_code == 200 and \
+                    re.fullmatch(r"/api/runs/[^/]+/checks", path.split("?")[0]):
+                data = resp.json()
+                data["checks"] = [{**row, "METRIC": "x", "CNT": -1, "APP_IDS": [1]} for row in data.get("checks", [])]
+                content = json.dumps(data).encode()
+            if "html_wrong_link" in mutations and resp.status_code == 200 and path.endswith("/checks.html"):
+                content = re.sub(rb'<a href="[^"]*">(\xd0\x9e\xd1\x82\xd0\xba\xd1\x80\xd1\x8b\xd1\x82\xd1\x8c)',
+                                 rb'<a href="http://127.0.0.1:9/runs/run_other/reports/rep_other">\1', resp.content)
             if "mode_missing" in mutations and path.startswith("/api/session") and resp.status_code == 200:
                 data = resp.json()
                 data.pop("execution_mode", None)

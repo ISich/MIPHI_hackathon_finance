@@ -141,3 +141,71 @@ def test_run_http_suite_startup_is_bounded_when_backend_stalls(tmp_path):
     assert proc.returncode != 0
     assert "passed" not in proc.stdout
     assert time.monotonic() - started < 120
+
+
+def test_run_http_suite_cleanup_is_bounded_when_backend_ignores_sigterm(tmp_path):
+    """CR5 #4: a child that ignores SIGTERM must still be stopped (SIGKILL after a grace period), launcher exits."""
+    import time
+
+    fake = tmp_path / "stubborn_python"
+    fake.write_text(STALLING_BACKEND.replace("import socket, sys, time\n",
+                                             "import socket, sys, time, signal\n"
+                                             "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"))
+    fake.chmod(0o755)
+    started = time.monotonic()
+    try:
+        proc = _suite("builtin-only", "tests/http/test_system.py", "-q", "-k", "health",
+                      env_extra={"BACKEND_PY": str(fake), "QA_STARTUP_TIMEOUT": "10", "QA_STOP_TIMEOUT": "5"},
+                      timeout=90)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["pkill", "-KILL", "-f", str(fake)], check=False)
+        pytest.fail("run_http_suite.sh cleanup hung on a backend that ignores SIGTERM")
+    assert proc.returncode != 0 and time.monotonic() - started < 60
+    alive = subprocess.run(["pgrep", "-f", str(fake)], capture_output=True, text=True).stdout.strip()
+    assert alive == "", f"launched backend still running: {alive}"
+
+
+MALFORMED_BACKEND = """#!/usr/bin/env python3
+# TEST DOUBLE: healthy /health, malformed /api/session (%(payload)r).
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+port = int(sys.argv[sys.argv.index("--port") + 1])
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b'{"status": "ok"}' if self.path == "/health" else %(payload)r
+        self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a): pass
+HTTPServer(("127.0.0.1", port), H).serve_forever()
+"""
+
+
+@pytest.mark.parametrize("payload", [b"not json", b"[1, 2]"])
+def test_start_backend_stops_child_on_malformed_session(tmp_path, monkeypatch, payload):
+    """CR5 #5: malformed /api/session must not leak the launched process."""
+    from support import backend_proc
+
+    fake_dir = tmp_path / "fake_backend"
+    (fake_dir / ".venv" / "bin").mkdir(parents=True)
+    fake = fake_dir / ".venv" / "bin" / "python"
+    fake.write_text(MALFORMED_BACKEND % {"payload": payload})
+    fake.chmod(0o755)
+    monkeypatch.setenv("QA_BACKEND_DIR", str(fake_dir))
+    launched = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(*args, **kwargs):
+        p = real_popen(*args, **kwargs)
+        if "uvicorn" in map(str, p.args if isinstance(p.args, list) else [p.args]):
+            launched.append(p)  # only the backend child, not fetch_core_checks.sh
+        return p
+
+    monkeypatch.setattr(backend_proc.subprocess, "Popen", recording_popen)
+    with pytest.raises(Exception):
+        backend_proc.start_backend(tmp_path / "home", {})
+    assert launched, "launcher did not start the fake"
+    try:
+        assert launched[0].poll() is not None, "launched backend leaked after failed startup"
+    finally:
+        if launched[0].poll() is None:
+            launched[0].kill()
