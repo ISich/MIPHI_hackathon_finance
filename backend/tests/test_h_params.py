@@ -7,7 +7,7 @@ def test_builtin_checks_expose_declared_default_params_without_executing_them(cl
     checks = {s["name"]: s for s in client.get("/api/scripts?kind=check").json() if s["source"] == "builtin"}
     ar = checks["check_ar_drop_by_product"]
     assert ar["declared_params"] == {"max_drop_rel": 0.10, "low_confidence_cnt": 5, "app_ids_limit": 20}
-    assert ar["params"] == {}  # overrides stay empty
+    assert ar["params"] == ar["declared_params"]  # defaults visible/editable; same effective params
 
 
 def test_builtin_normalize_preset_is_visible(client):

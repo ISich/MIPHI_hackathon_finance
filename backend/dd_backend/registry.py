@@ -330,8 +330,10 @@ class Registry:
                             "code": code, "params": spec["params"]})
         if self.settings.checks_dir.is_dir():
             for path in sorted(self.settings.checks_dir.glob("check_*.py")):
+                code = path.read_bytes()
+                # Defaults shown/editable in the UI; effective params stay {**CHECK.params, **these, **config}.
                 entries.append({"ref": f"builtin:check:{path.name}", "kind": "check", "name": path.stem,
-                                "filename": path.name, "code": path.read_bytes(), "params": {}})
+                                "filename": path.name, "code": code, "params": declared_check_params(code) or {}})
         ts = now()
         with self.db.tx() as con:
             for e in entries:
@@ -348,8 +350,8 @@ class Registry:
                                 (new_id("scr"), None, e["kind"], "builtin", e["name"], e["filename"], e["ref"], sha, rel,
                                  dumps(e["params"]), 1, ts, ts))
                 elif row["code_sha256"] != sha:
-                    con.execute("UPDATE scripts SET code_sha256=?, code_rel=?, revision=?, updated_at=? WHERE script_id=?",
-                                (sha, rel, row["revision"] + 1, ts, row["script_id"]))
+                    con.execute("UPDATE scripts SET code_sha256=?, code_rel=?, params_json=?, revision=?, updated_at=? "
+                                "WHERE script_id=?", (sha, rel, dumps(e["params"]), row["revision"] + 1, ts, row["script_id"]))
 
     def builtin_script_id(self, ref: str) -> str | None:
         row = self.db.one("SELECT script_id FROM scripts WHERE owner_id IS NULL AND builtin_ref = ?", (ref,))
