@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { onScopeDispose, shallowRef, type ShallowRef } from "vue";
 
 /** Minimal hash router: "#/runs/abc?x=1" → {path: "/runs/abc", query}. */
 export interface Route {
@@ -13,13 +13,12 @@ export function parseHash(hash: string): Route {
   return { path, parts: path.split("/").filter(Boolean).map(decodeURIComponent), query: new URLSearchParams(qs) };
 }
 
-export function useRoute(): Route {
-  const [route, setRoute] = useState(() => parseHash(window.location.hash));
-  useEffect(() => {
-    const on = () => setRoute(parseHash(window.location.hash));
-    window.addEventListener("hashchange", on);
-    return () => window.removeEventListener("hashchange", on);
-  }, []);
+/** Reactive current route; follows `hashchange` while the calling scope is alive. */
+export function useRoute(): ShallowRef<Route> {
+  const route = shallowRef(parseHash(window.location.hash));
+  const on = () => (route.value = parseHash(window.location.hash));
+  window.addEventListener("hashchange", on);
+  onScopeDispose(() => window.removeEventListener("hashchange", on));
   return route;
 }
 

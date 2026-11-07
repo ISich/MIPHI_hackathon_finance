@@ -1,0 +1,23 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { api } from "../api/instance";
+import { useApi } from "../composables/useApi";
+
+/** Shows the server's execution mode up front, so a refusal is not a surprise. */
+const ready = useApi(() => "ready", () => api.ready());
+const kinds = useApi(() => "script-kinds", () => api.scriptKinds());
+const flag = computed(() => kinds.data?.find((k) => k.custom_execution_enabled !== undefined)?.custom_execution_enabled);
+const mode = computed(() => ready.data?.execution_mode ?? (flag.value === false ? "builtin-only" : flag.value ? "trusted-local" : undefined));
+const disabled = computed(() => mode.value === "builtin-only" || flag.value === false);
+</script>
+
+<template>
+  <div v-if="mode && disabled" class="state state-disabled" role="note" data-testid="exec-mode">
+    Сервер в режиме <code>builtin-only</code>: исполняются только встроенные процедуры и проверки. Пользовательский код будет сохранён, но
+    запуск с ним backend отклонит (политика безопасности; включается администратором только для trusted-local на 127.0.0.1).
+  </div>
+  <div v-else-if="mode" class="state state-notready" role="note" data-testid="exec-mode">
+    Режим исполнения сервера: <code>{{ mode }}</code>. Пользовательский Python исполняется как доверенный локальный код — не изолированная
+    песочница.
+  </div>
+</template>

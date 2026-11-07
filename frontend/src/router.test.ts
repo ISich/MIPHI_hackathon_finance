@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deepLinkToHash, href, parseHash } from "./router";
-import { parsePivotQuery, pivotQuery } from "./screens/PivotView";
+import { parsePivotQuery, pivotQuery } from "./pivot/query";
 
 describe("router", () => {
   it("parses hash path and query", () => {
