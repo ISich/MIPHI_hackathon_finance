@@ -74,6 +74,21 @@ scripts/smoke.sh /tmp/dd-smoke          # real uvicorn on 127.0.0.1:<random>, fu
 ```
 
 Real request/response examples captured by the smoke script: [`docs/examples/`](docs/examples/).
+
+Minimal curl session (cookie jar = one owner):
+
+```bash
+B=http://127.0.0.1:8000; J=/tmp/dd.cookies
+curl -s -c $J -b $J $B/api/datasets                                   # first /api call issues the dd_session cookie
+curl -s -c $J -b $J -H 'content-type: application/json' \
+     -d '{"name":"demo","dataset_id":"<ds_id>"}' $B/api/configurations   # all built-in procedures + 5 checks
+curl -s -c $J -b $J -H 'content-type: application/json' -H 'Idempotency-Key: 1' \
+     -d '{"configuration_id":"<config_id>"}' $B/api/runs                  # 202 + run_id
+curl -s -b $J $B/api/runs/<run_id>                                      # status/stage/processed/total
+curl -s -b $J "$B/api/runs/<run_id>/events?after=0"
+curl -s -b $J $B/api/runs/<run_id>/summary                              # 409 NOT_READY until COMPLETED
+curl -s -b $J $B/api/runs/<run_id>/checks                               # initial report
+```
 Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also served at `/openapi.json`).
 
 ## Environment variables (no secrets are needed or read)
