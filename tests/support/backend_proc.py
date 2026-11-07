@@ -93,27 +93,43 @@ def start_backend(home: Path, roots: dict[str, Path], mode: str = "builtin-only"
                              "--host", "127.0.0.1", "--port", str(port), "--app-dir", str(bdir)],
                             cwd=str(home.parent), env=env, stdout=log.open("ab"), stderr=subprocess.STDOUT)
     backend = Backend(proc, port, home, log, mode)
+    try:
+        _await_identity(backend, mode)
+    except BaseException:
+        backend.stop(sig_kill=True)  # CR5 #5: every unsuccessful startup path terminates the child
+        raise
+    return backend
+
+
+def _await_identity(backend: Backend, mode: str) -> None:
+    proc, port = backend.proc, backend.port
+    foreign_streak = 0
     for _ in range(150):
         if proc.poll() is not None:
-            raise AssertionError("backend exited during startup:\n" + log.read_text())
-        # Identity first: /health counts only once OUR child owns the listening socket (CR2 #5).
-        if proc.pid in _socket_owner_pids(port):
+            raise AssertionError("backend exited during startup:\n" + backend.log.read_text())
+        owners = _socket_owner_pids(port)
+        if proc.pid in owners:
+            foreign_streak = 0
             try:
                 healthy = httpx.get(backend.url + "/health", timeout=1).status_code == 200
-                reported = httpx.get(backend.url + "/api/session", timeout=5).json().get("execution_mode")
+                session = httpx.get(backend.url + "/api/session", timeout=5).json()
             except httpx.HTTPError:
-                healthy = False
+                healthy, session = False, None
             if healthy:
+                if not isinstance(session, dict):
+                    raise AssertionError(f"/api/session is not a JSON object: {session!r}")
                 if proc.poll() is not None or proc.pid not in _socket_owner_pids(port):
-                    backend.stop(sig_kill=True)
                     raise AssertionError(f"port {port} no longer owned by launched pid {proc.pid}")
-                if reported != mode:
-                    backend.stop(sig_kill=True)
-                    raise AssertionError(f"server reports execution_mode={reported!r}, expected {mode!r}")
-                return backend
-        elif _socket_owner_pids(port):
-            backend.stop(sig_kill=True)
-            raise AssertionError(f"port {port} is held by pids {_socket_owner_pids(port)}, not launched pid {proc.pid}")
+                if session.get("execution_mode") != mode:
+                    raise AssertionError(f"server reports execution_mode={session.get('execution_mode')!r}, "
+                                         f"expected {mode!r}")
+                return
+        elif owners:
+            # Only a STABLE foreign owner counts (ss may briefly list a socket during bind/startup).
+            foreign_streak += 1
+            if foreign_streak >= 10:
+                raise AssertionError(f"port {port} is held by pids {owners}, not launched pid {proc.pid}")
+        else:
+            foreign_streak = 0
         time.sleep(0.2)
-    backend.stop(sig_kill=True)
-    raise AssertionError("backend did not start:\n" + log.read_text())
+    raise AssertionError("backend did not start:\n" + backend.log.read_text())
