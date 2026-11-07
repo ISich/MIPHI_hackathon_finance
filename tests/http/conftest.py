@@ -64,9 +64,18 @@ def fixture_root() -> tuple[str, Path]:
     return name, Path(folder)
 
 
+SUPPORTED_MODES = ("builtin-only", "trusted-local")
+
+
 @pytest.fixture(scope="session")
 def execution_mode(api_a) -> str:
-    return api_a.session().get("execution_mode", "unknown")
+    """CR3 #2: mode-dependent skips are only allowed for a mode the server explicitly reports from the enum;
+    otherwise both sides of the execution policy would be skipped silently."""
+    reported = api_a.session().get("execution_mode")
+    if reported not in SUPPORTED_MODES:
+        pytest.fail(f"/api/session execution_mode={reported!r} is not one of {SUPPORTED_MODES}; "
+                    "execution-policy coverage cannot be selected", pytrace=False)
+    return reported
 
 
 @pytest.fixture(scope="session", autouse=True)
