@@ -4,6 +4,7 @@ import { newIdempotencyKey } from "../api/client";
 import { api } from "../api/instance";
 import { PROCEDURE_SLOTS, type Configuration, type Dataset, type ProcedureSlot, type Script } from "../api/types";
 import AsyncView from "../components/AsyncView.vue";
+import AppIcon from "../components/AppIcon.vue";
 import ErrorView from "../components/ErrorView.vue";
 import { useApi } from "../composables/useApi";
 import { href, navigate } from "../router";
@@ -89,9 +90,10 @@ async function submit() {
 
 <template>
   <section>
-    <h1>Новый запуск</h1>
+    <div class="page-heading"><div><span class="eyebrow">Конфигурация анализа</span><h1>Новый запуск</h1><p class="muted">Выберите данные, настройте процедуры и запустите сравнение версий СПР.</p></div><a class="button" :href="href('runs')"><AppIcon name="runs" :size="16" />Все запуски</a></div>
+    <div class="new-run-layout">
     <form class="form" aria-label="Новый запуск" @submit.prevent="submit">
-      <fieldset>
+      <fieldset class="config-source">
         <legend>Источник конфигурации</legend>
         <label><input v-model="mode" type="radio" name="mode" value="new" /> Новая конфигурация</label>
         <label><input v-model="mode" type="radio" name="mode" value="saved" /> Сохранённая</label>
@@ -109,6 +111,8 @@ async function submit() {
         </template>
       </AsyncView>
       <template v-else>
+        <div class="config-fields">
+        <h2>Данные и название</h2>
         <label>
           Название
           <input v-model="name" required maxlength="120" />
@@ -126,9 +130,10 @@ async function submit() {
             </label>
           </template>
         </AsyncView>
+        </div>
         <AsyncView :value="scripts" what="Загрузка процедур">
           <template #default>
-            <fieldset>
+            <fieldset class="procedure-grid">
               <legend>Процедуры по слотам</legend>
               <label v-for="slot in PROCEDURE_SLOTS" :key="slot">
                 {{ slot }}
@@ -160,7 +165,9 @@ async function submit() {
       </template>
 
       <ErrorView v-if="error" :error="error" />
-      <button type="submit" class="primary" :disabled="busy || !prerequisitesReady">{{ busy ? "Запуск…" : "Сохранить конфигурацию и запустить" }}</button>
+      <div class="form-submit"><button type="submit" class="primary" :disabled="busy || !prerequisitesReady"><AppIcon name="plus" :size="17" />{{ busy ? "Запуск…" : "Сохранить конфигурацию и запустить" }}</button><p class="muted">Конфигурация и код процедур сохраняются в snapshot этого запуска.</p></div>
     </form>
+    <aside class="pipeline-guide" aria-label="Этапы анализа"><h2>Как устроен запуск</h2><ol><li><strong>Данные и конфигурация</strong><small>Набор данных и выбранные процедуры</small></li><li><strong>Сравнение версий</strong><small>Нормализация, сравнение и агрегация</small></li><li><strong>Контроль качества</strong><small>Исполнение выбранных проверок</small></li><li><strong>Результаты и отчёт</strong><small>Сводка, детализация и HTML-отчёт</small></li></ol><p>Прогресс и журнал событий появятся сразу после создания запуска. Итоги рассчитываются на backend.</p></aside>
+    </div>
   </section>
 </template>

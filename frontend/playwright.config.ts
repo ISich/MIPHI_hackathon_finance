@@ -6,7 +6,7 @@ import { defineConfig, devices } from "@playwright/test";
 //  - e2e/real.spec.ts: real backend E2E; runs only when PLAYWRIGHT_BASE_URL
 //    points at a UI dev server proxied to a running backend (npm run e2e:real).
 const real = !!process.env.PLAYWRIGHT_BASE_URL;
-const MOCK_PORT = 5174;
+const MOCK_PORT = Number(process.env.PLAYWRIGHT_MOCK_PORT ?? 5174);
 
 export default defineConfig({
   testDir: "e2e",

@@ -3,21 +3,28 @@
 import { test, expect } from "./guard";
 import type { Page } from "@playwright/test";
 
+async function expectNoPageOverflow(page: Page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+}
+
 async function startRun(page: Page) {
   await page.goto("/#/runs/new");
   await expect(page.getByTestId("mock-banner")).toBeVisible();
   await page.getByRole("combobox", { name: "Набор данных" }).selectOption("ds_mock_examples");
   await expect(page.getByRole("combobox", { name: "Процедура normalize" })).toBeVisible();
+  await expectNoPageOverflow(page);
   await page.getByRole("button", { name: /Сохранить конфигурацию и запустить/ }).click();
   await expect(page).toHaveURL(/#\/runs\/run_/);
   await expect(page.getByTestId("run-status")).toHaveText("COMPLETED", { timeout: 25_000 });
   await expect(page.getByText("Run completed (MOCK)")).toBeVisible();
+  await expectNoPageOverflow(page);
 }
 
 test("configuration → monitor → summary → pivot fallback → drill-down → application → checks", async ({ page }, info) => {
   await startRun(page);
   await page.getByRole("link", { name: "Сводка" }).click();
   await expect(page.getByTestId("tile-total")).toContainText("6");
+  await expectNoPageOverflow(page);
 
   await page.getByRole("link", { name: "Сводная (pivot)" }).click();
   await expect(page.getByTestId("pivot-unavailable")).toContainText("ANALYTICS_UNAVAILABLE");
@@ -26,6 +33,7 @@ test("configuration → monitor → summary → pivot fallback → drill-down �
   await expect(page.getByTestId("group-total")).toContainText("полный distinct total backend не сообщает");
   await page.getByRole("link", { name: /^MOCK-/ }).first().click();
   await expect(page.getByRole("table", { name: "Сравнение атрибутов" })).toBeVisible();
+  await expectNoPageOverflow(page);
 
   await page.goBack();
   await page.goBack();
@@ -33,6 +41,7 @@ test("configuration → monitor → summary → pivot fallback → drill-down �
   await expect(page.getByTestId("check-execution")).toHaveCount(5);
   await expect(page.locator('[data-exec-status="ERROR"]')).toContainText("это не FAIL");
   await expect(page.getByTestId("check-summary")).toContainText("ошибок исполнения: 1");
+  await expectNoPageOverflow(page);
   await page.screenshot({ path: info.outputPath("checks.png"), fullPage: true });
 });
 
@@ -74,4 +83,70 @@ test("deep link from HTML report opens the pivot of that Run", async ({ page }) 
   await page.goto("/runs/run_x/reports/rep_y");
   await expect(page).toHaveURL(/#\/runs\/run_x\/pivot\?report=rep_y/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("run_x");
+});
+
+async function sidebarLink(page: Page, name: string) {
+  const navigation = page.getByRole("navigation", { name: "Основная навигация" });
+  if (!(await navigation.isVisible())) await page.getByRole("button", { name: "Открыть боковую панель" }).click();
+  await navigation.getByRole("link", { name, exact: true }).click();
+  if ((page.viewportSize()?.width ?? 0) < 760) await expect(navigation).toBeHidden();
+}
+
+test("dashboard shows honest empty states and responsive navigation", async ({ page }, info) => {
+  await page.goto("/#/overview");
+  await expect(page.getByRole("heading", { name: "Обзор рабочего пространства" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Всего запусков/ })).toContainText("0");
+  await expect(page.getByText("Пока ни одного запуска")).toBeVisible();
+  await expect(page.getByRole("img", { name: /Запуски за последние 7 дней/ })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await sidebarLink(page, "Запуски");
+  await expect(page).toHaveURL(/#\/runs$/);
+  await sidebarLink(page, "Обзор");
+  await expect(page).toHaveURL(/#\/overview$/);
+  if ((page.viewportSize()?.width ?? 0) < 760) {
+    const trigger = page.getByRole("button", { name: "Открыть боковую панель" });
+    await trigger.click();
+    await expect(page.getByRole("dialog", { name: "Навигация проекта" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+  }
+  await page.screenshot({ path: info.outputPath("dashboard-empty.png"), fullPage: true });
+});
+
+test("command palette navigates and theme choice persists", async ({ page }) => {
+  await page.goto("/#/overview");
+  await page.keyboard.press("ControlOrMeta+k");
+  const palette = page.getByRole("dialog", { name: "Быстрый переход" });
+  await expect(palette).toBeVisible();
+  await palette.getByRole("textbox").fill("Python");
+  await palette.getByRole("link", { name: /Рабочая область/ }).click();
+  await expect(page).toHaveURL(/#\/scripts$/);
+  await expect(palette).not.toBeVisible();
+  await page.getByRole("button", { name: "Включить тёмную тему" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Включить светлую тему" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+});
+
+test("dashboard metrics, search and status filters use returned runs", async ({ page }, info) => {
+  await startRun(page);
+  await sidebarLink(page, "Запуски");
+  const table = page.getByRole("table", { name: "Список запусков" });
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await page.getByRole("searchbox", { name: "Поиск запусков" }).fill("missing-run");
+  await expect(page.getByText("Ничего не найдено", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Сбросить фильтры" }).click();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await page.getByRole("group", { name: "Фильтр статуса" }).getByRole("button", { name: "С ошибкой", exact: true }).click();
+  await expect(page.getByText("Ничего не найдено", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /Завершено/ }).click();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await sidebarLink(page, "Обзор");
+  await expect(page.getByRole("button", { name: /Всего запусков/ })).toContainText("1");
+  await expect(page.getByText("1 за 7 дней", { exact: true })).toBeVisible();
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+  await page.screenshot({ path: info.outputPath("dashboard-with-run.png"), fullPage: true });
 });

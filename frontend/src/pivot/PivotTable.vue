@@ -23,7 +23,7 @@ const drill = (group: string) => `${href("runs", props.runId, "groups", group)}?
       несколько групп.
     </p>
     <p v-if="data.truncated" class="state state-notready">Результат усечён сервером.</p>
-    <table class="table pivot" aria-label="Сводная таблица">
+    <div class="table-wrap"><table class="table pivot" aria-label="Сводная таблица">
       <thead>
         <tr>
           <th>{{ data.rows.join(" · ") || "—" }}</th>
@@ -54,6 +54,6 @@ const drill = (group: string) => `${href("runs", props.runId, "groups", group)}?
           <td class="num total" data-testid="grand-total"><PivotCellLink :cell="data.grand_total" :drill="drill" /></td>
         </tr>
       </tfoot>
-    </table>
+    </table></div>
   </div>
 </template>

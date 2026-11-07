@@ -2,6 +2,7 @@
 import { api } from "../api/instance";
 import type { Script } from "../api/types";
 import AsyncView from "../components/AsyncView.vue";
+import AppIcon from "../components/AppIcon.vue";
 import { useApi } from "../composables/useApi";
 import { href } from "../router";
 
@@ -11,13 +12,13 @@ const isEmpty = (d: Script[]) => d.length === 0;
 
 <template>
   <section>
-    <div class="row-between">
-      <h1>Рабочая область: скрипты</h1>
-      <a class="button primary" :href="href('scripts', 'new')">Новый скрипт</a>
+    <div class="page-heading">
+      <div><span class="eyebrow">Процедуры и проверки</span><h1>Рабочая область: скрипты</h1><p class="muted">Библиотека процедур и неизменяемые версии Python-кода для анализа.</p></div>
+      <a class="button primary" :href="href('scripts', 'new')"><AppIcon name="plus" :size="17" />Новый скрипт</a>
     </div>
     <AsyncView :value="scripts" :is-empty="isEmpty" empty="Скриптов нет.">
       <template #default="{ data: list }">
-        <table class="table" aria-label="Скрипты">
+        <div class="table-wrap"><table class="table" aria-label="Скрипты">
           <thead>
             <tr>
               <th>Название</th>
@@ -36,7 +37,7 @@ const isEmpty = (d: Script[]) => d.length === 0;
               <td><code>{{ s.code_sha256.slice(0, 12) }}</code></td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
       </template>
     </AsyncView>
   </section>

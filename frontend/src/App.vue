@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { IS_MOCK } from "./api/instance";
-import MockBanner from "./components/MockBanner.vue";
+import DashboardShell from "./components/DashboardShell.vue";
 import ApplicationView from "./drilldown/ApplicationView.vue";
 import FactApplications from "./drilldown/FactApplications.vue";
 import GroupApplications from "./drilldown/GroupApplications.vue";
 import NewScript from "./editor/NewScript.vue";
 import ScriptsList from "./editor/ScriptsList.vue";
 import ScriptView from "./editor/ScriptView.vue";
-import { href, useRoute } from "./router";
+import { useRoute } from "./router";
 import NewRun from "./run-config/NewRun.vue";
 import RunPage from "./run-monitor/RunPage.vue";
 import RunsList from "./run-monitor/RunsList.vue";
@@ -17,6 +16,7 @@ const route = useRoute();
 const view = computed(() => {
   const [section, id, sub, subId] = route.value.parts;
   const q = route.value.query;
+  if (section === "overview") return { name: "overview" as const };
   if (section === "runs" && id === "new") return { name: "new-run" as const };
   if (section === "runs" && id && sub === "groups" && subId) return { name: "group" as const, runId: id, group: subId, back: q.get("back") ?? "" };
   if (section === "runs" && id && sub === "fact-apps")
@@ -32,16 +32,7 @@ const view = computed(() => {
 </script>
 
 <template>
-  <MockBanner v-if="IS_MOCK" />
-  <header class="topbar">
-    <a :href="href('runs')" class="brand">Анализ изменений СПР</a>
-    <nav aria-label="Основная навигация">
-      <a :href="href('runs')">Запуски</a>
-      <a :href="href('runs', 'new')">Новый запуск</a>
-      <a :href="href('scripts')">Рабочая область</a>
-    </nav>
-  </header>
-  <main>
+  <DashboardShell>
     <NewRun v-if="view.name === 'new-run'" />
     <GroupApplications v-else-if="view.name === 'group'" :key="view.group" :run-id="view.runId" :group="view.group" :back="view.back" />
     <FactApplications v-else-if="view.name === 'fact-apps'" :run-id="view.runId" :group="view.group" :cnt="view.cnt" :report="view.report" />
@@ -50,6 +41,6 @@ const view = computed(() => {
     <NewScript v-else-if="view.name === 'new-script'" :from-id="view.fromId" />
     <ScriptView v-else-if="view.name === 'script'" :script-id="view.scriptId" />
     <ScriptsList v-else-if="view.name === 'scripts'" />
-    <RunsList v-else />
-  </main>
+    <RunsList v-else :key="view.name" :overview="view.name === 'overview'" />
+  </DashboardShell>
 </template>

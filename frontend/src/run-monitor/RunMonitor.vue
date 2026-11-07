@@ -37,7 +37,7 @@ const stageClass = (i: number) => (i < stageIdx.value || props.run.status === "C
     <p v-if="run.status !== 'COMPLETED'" class="muted">Отчёт станет доступен после завершения Run.</p>
     <h2>Журнал</h2>
     <p v-if="events.length === 0" class="muted">Событий пока нет.</p>
-    <table class="table" aria-label="Журнал событий">
+    <div class="table-wrap"><table class="table" aria-label="Журнал событий">
       <tbody>
         <tr v-for="e in events" :key="e.seq" :class="`level-${String(e.level).toLowerCase()}`">
           <td>{{ e.seq }}</td>
@@ -48,6 +48,6 @@ const stageClass = (i: number) => (i < stageIdx.value || props.run.status === "C
           <td><CodeSnapshotLink v-if="slotOfCodeRef(e.code_ref)" :run-id="run.run_id" :slot="slotOfCodeRef(e.code_ref)!" :check-run-id="e.check_run_id" /></td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
   </div>
 </template>
