@@ -786,6 +786,8 @@ class Worker:
                 rc, timed_out = self.spawn(["dd_backend.check_child", "register", str(path), str(reg_out)],
                                            workdir=cdir / "work", timeout=settings.check_timeout_seconds,
                                            log_path=cdir / f"{s['slot']}.log")
+                if self._stop.is_set():
+                    return False  # interrupted by shutdown: not a check failure, nothing is published
                 if timed_out:
                     ex.update(execution_status="TIMEOUT", diagnostics=[{"error_type": "Timeout", "message": "check import timed out"}])
                     continue
@@ -798,6 +800,8 @@ class Worker:
                         "message": f"report budget DD_MAX_REPORT_BYTES exhausted by registration metadata "
                                    f"({report_bytes}+{rsize} bytes); not loaded"}])
                     continue
+                if reg is not None:
+                    report_bytes += rsize  # charged before any branch retains params or diagnostics
                 if reg is None:
                     ex.update(execution_status="ERROR", diagnostics=[{
                         "error_type": "ChildFailed" if pstatus == "exit" else "ProtocolFile",
@@ -812,7 +816,6 @@ class Worker:
                     ex.update(execution_status=reg["status"], diagnostics=[{"error_type": reg["error_type"],
                                                                             "message": self._sanitize(reg["message"])}])
                     continue
-                report_bytes += rsize  # retained registration metadata (params) counts against the budget
                 ex.update(check_id=reg["id"], label=reg["label"])
                 if reg["id"] in seen_ids:
                     ex.update(execution_status="DUPLICATE_ID", diagnostics=[{
@@ -827,6 +830,8 @@ class Worker:
                 rc, timed_out = self.spawn(["dd_backend.check_child", "run", str(path), str(mart), str(overrides), str(run_out)],
                                            workdir=cdir / "work", timeout=settings.check_timeout_seconds,
                                            log_path=cdir / f"{s['slot']}.log")
+                if self._stop.is_set():
+                    return False  # interrupted by shutdown: not a check failure, nothing is published
                 ex["duration_seconds"] = round(time.monotonic() - started, 3)
                 if timed_out:
                     ex.update(execution_status="TIMEOUT", diagnostics=[{
@@ -865,6 +870,8 @@ class Worker:
                 log.exception("check slot %s failed inside the worker", s["slot"])
                 ex.update(execution_status="ERROR", rows=[], diagnostics=[{
                     "error_type": "WorkerCheckError", "message": f"internal error while handling this check ({type(exc).__name__})"}])
+        if self._stop.is_set():
+            return False
         return self._publish_report(run_id, cr_id, executions, initial=initial)
 
     @staticmethod
