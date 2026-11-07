@@ -112,7 +112,38 @@ ORGANIZER_CHECK_IDS = {"ar_drop_by_product", "attribute_new_loss", "external_sco
 ROW_FIELDS = {"LABEL", "SOURCE", "ARGUMENT", "CNT", "TOTAL", "METRIC", "APP_IDS", "RESULT", "CONFIDENCE"}
 
 
-def report_problems(body, run, expected_check_ids=ORGANIZER_CHECK_IDS) -> list[str]:
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def row_problems(r, app_universe=None) -> list[str]:
+    """CR5 #2: values, types and consistency of one organizer check row (S4/S5)."""
+    import math
+
+    if not (isinstance(r, dict) and ROW_FIELDS <= set(r)):
+        return ["missing fields"]
+    out = []
+    if not (isinstance(r["LABEL"], str) and r["LABEL"]) or not isinstance(r["ARGUMENT"], str):
+        out.append("LABEL/ARGUMENT not strings")
+    if r["SOURCE"] not in ("BEFORE", "AFTER") or r["RESULT"] not in ("PASS", "FAIL") \
+            or r["CONFIDENCE"] not in ("HIGH", "LOW"):
+        out.append("enum value outside contract")
+    cnt, total, metric, ids = r["CNT"], r["TOTAL"], r["METRIC"], r["APP_IDS"]
+    if not (_is_int(cnt) and _is_int(total) and 0 <= cnt <= total):
+        out.append("CNT/TOTAL not integers with 0 <= CNT <= TOTAL")
+    if app_universe is not None and _is_int(total) and total > len(app_universe):
+        out.append("TOTAL exceeds the number of applications in the Run")
+    if not (isinstance(metric, (int, float)) and not isinstance(metric, bool) and math.isfinite(metric)):
+        out.append("METRIC not a finite number")
+    if not (isinstance(ids, list) and all(isinstance(x, str) and x for x in ids)
+            and ids == sorted(set(ids)) and (not _is_int(cnt) or len(ids) <= cnt)):
+        out.append("APP_IDS not a sorted unique list of strings with len <= CNT")
+    elif app_universe is not None and not set(ids) <= app_universe:
+        out.append("APP_IDS outside this Run")
+    return out
+
+
+def report_problems(body, run, expected_check_ids=ORGANIZER_CHECK_IDS, app_universe=None) -> list[str]:
     """Why `body` is NOT a complete, well-formed initial report of `run` with exactly the expected checks (CR3 #1).
     Empty list = valid. Validates identity, every execution record, every check row and their consistency."""
     if not isinstance(body, dict):
@@ -149,10 +180,7 @@ def report_problems(body, run, expected_check_ids=ORGANIZER_CHECK_IDS) -> list[s
     if not rows:
         problems.append("no check rows")
     for r in rows:
-        if not (isinstance(r, dict) and ROW_FIELDS <= set(r) and r["RESULT"] in ("PASS", "FAIL")
-                and r["SOURCE"] in ("BEFORE", "AFTER") and r["CONFIDENCE"] in ("HIGH", "LOW")
-                and isinstance(r["CNT"], int) and isinstance(r["TOTAL"], int) and isinstance(r["APP_IDS"], list)):
-            problems.append(f"bad check row {str(r)[:120]}")
+        problems += [f"{why}: {str(r)[:120]}" for why in row_problems(r, app_universe)]
     return problems
 
 
@@ -165,7 +193,8 @@ def test_not_ready_before_completion_and_status_stays_responsive(api_a, fixture_
     import time
 
     timeout = float(os.environ.get("QA_RUN_TIMEOUT", "300"))
-    root, _ = fixture_root
+    root, folder = fixture_root
+    universe = {p.stem for p in (folder / "big" / "BEFORE").glob("*.json")}  # independent of the API
     ds = api_a.dataset(root, "dirs", "big/BEFORE", "big/AFTER")  # 400 pairs: a real running window
     run_id = api_a.start_run(api_a.config(ds["dataset_id"])["config_id"]).json()["run_id"]
     nonfinal_observations = 0
@@ -201,12 +230,13 @@ def test_not_ready_before_completion_and_status_stays_responsive(api_a, fixture_
     assert api_a.get(f"/api/runs/{run_id}/summary").status_code == 200
     final_checks = api_a.get(f"/api/runs/{run_id}/checks")
     assert final_checks.status_code == 200, final_checks.text[:300]
-    assert report_problems(final_checks.json(), run) == []
+    assert report_problems(final_checks.json(), run, app_universe=universe) == []
 
     # Every early 200 must be exactly the published initial report, else it is a real failure, not API-DISC-05.
     for stage, body in early:
         assert stage in ("CHECKING", "FINALIZING"), f"/checks answered 200 already in stage {stage}"
-        assert report_problems(body, run) == [] and body == final_checks.json(), (stage, str(body)[:300])
+        assert report_problems(body, run, app_universe=universe) == [] and body == final_checks.json(), \
+            (stage, str(body)[:300])
     known_defect(bool(early),
                  f"API-DISC-05: /runs/{{id}}/checks serves the (complete, correct) initial report while the Run is "
                  f"still {sorted({s for s, _ in early})}, before COMPLETED (FR-017, api.md not-ready)")
