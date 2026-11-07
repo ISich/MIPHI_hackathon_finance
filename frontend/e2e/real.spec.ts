@@ -26,9 +26,10 @@ async function startRealRun(page: Page): Promise<string> {
   return runId;
 }
 
-test("real: configuration → Run → monitor/events → summary → pivot/facts → drill-down → application → checks", async ({ page, consoleErrors }, info) => {
+test("real: configuration → Run → monitor/events → summary → pivot/facts → drill-down → application → checks", async ({ page, browserErrors }, info) => {
   // page.request shares the browser cookie = the same anonymous owner session
   const request = page.request;
+  browserErrors.allow({ method: "POST", url: /^\/api\/runs\/[^/]+\/pivot$/, status: 501 }); // documented: D4 rollup not implemented
   const runId = await startRealRun(page);
   // journal shows real stage events with code snapshot links
   const journal = page.getByRole("table", { name: "Журнал событий" });
@@ -73,8 +74,6 @@ test("real: configuration → Run → monitor/events → summary → pivot/facts
   const html = await request.get(`/api/reports/${run.initial_report_id}/checks.html`);
   expect(html.ok()).toBeTruthy();
   expect(await html.text()).toContain(`/runs/${runId}/reports/${run.initial_report_id}`);
-  // the only tolerated browser "error" is the documented 501 of the server pivot rollup
-  expect(consoleErrors.filter((e) => !e.includes("status of 501"))).toEqual([]);
 });
 
 test("real: a fresh browser gets exactly one anonymous session on first load (no parallel-session race)", async ({ page }) => {
@@ -99,9 +98,10 @@ test("real: another session cannot read this Run (owner scope)", async ({ page, 
   expect((await foreign.json()).code).toBe("NOT_FOUND");
 });
 
-test("real: new check — builtin-only refusal or trusted-local new report", async ({ page, consoleErrors }, info) => {
+test("real: new check — builtin-only refusal or trusted-local new report", async ({ page, browserErrors }, info) => {
   // page.request shares the browser cookie = the same anonymous owner session
   const request = page.request;
+  if (!TRUSTED) browserErrors.allow({ method: "POST", url: /^\/api\/runs\/[^/]+\/check-runs$/, status: 403 }); // documented refusal in builtin-only
   const runId = await startRealRun(page);
   await page.getByRole("link", { name: "Новая проверка" }).click();
   await page.getByText("Контракт проверки").click();
@@ -111,7 +111,6 @@ test("real: new check — builtin-only refusal or trusted-local new report", asy
   if (!TRUSTED) {
     await expect(page.getByTestId("exec-mode")).toContainText("builtin-only");
     await expect(page.locator('[data-error-code="CUSTOM_EXECUTION_DISABLED"]')).toContainText("выключено на сервере");
-    expect(consoleErrors.filter((e) => !e.includes("403"))).toEqual([]);
     return;
   }
   await expect(page).toHaveURL(/checks\?report=/, { timeout: 120_000 });
@@ -125,11 +124,11 @@ test("real: new check — builtin-only refusal or trusted-local new report", asy
   const initial = await api<{ executions: unknown[] }>(request, `/api/reports/${run.initial_report_id}/checks`);
   expect(initial.executions.length).toBe(doc.executions.length - 1);
   await page.screenshot({ path: info.outputPath("real-new-check.png"), fullPage: true });
-  expect(consoleErrors).toEqual([]);
 });
 
-test("real: modified procedure (workspace normalize) → new Run uses the new snapshot", async ({ page, consoleErrors }) => {
+test("real: modified procedure (workspace normalize) → new Run uses the new snapshot", async ({ page, browserErrors }) => {
   const request = page.request;
+  if (!TRUSTED) browserErrors.allow({ method: "POST", url: /^\/api\/runs$/, status: 403 });
   // 1. workspace script from the backend's own normalize example
   await page.goto("/#/scripts/new");
   await page.getByRole("combobox").first().selectOption("normalize");
@@ -148,7 +147,6 @@ test("real: modified procedure (workspace normalize) → new Run uses the new sn
   if (!TRUSTED) {
     await expect(page.locator('[data-error-code="CUSTOM_EXECUTION_DISABLED"]')).toContainText("выключено на сервере");
     expect(page.url()).toContain("#/runs/new");
-    expect(consoleErrors.filter((e) => !e.includes("403"))).toEqual([]);
     return;
   }
   await expect(page).toHaveURL(/#\/runs\/run_/);
@@ -157,5 +155,4 @@ test("real: modified procedure (workspace normalize) → new Run uses the new sn
   const snap = await api<{ source: string; name: string }>(request, `/api/runs/${runId}/code/normalize`);
   expect(snap.source).toBe("workspace");
   expect(snap.name).toBe(name);
-  expect(consoleErrors).toEqual([]);
 });
