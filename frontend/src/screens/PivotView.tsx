@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
+import { ApiError } from "../api/client";
 import { api } from "../api/instance";
 import { PIVOT_DIMENSIONS, type PivotFilter, type PivotResponse, type Run } from "../api/types";
 import { Async } from "../components/StateView";
+import { BaseFactsView } from "./BaseFactsView";
 import { useApi } from "../hooks/useApi";
 import { href, navigate } from "../router";
 
@@ -36,13 +38,37 @@ const label = (k: Array<string | number | null>) => (k.length ? k.map((v) => (v 
 export function PivotView({ run, query }: { run: Run; query: URLSearchParams }) {
   const state = parsePivotQuery(query);
   const qs = pivotQuery(state);
+  const reportCtx = query.get("report");
   const pivot = useApi(`pivot:${run.run_id}:${qs}`, () =>
-    api.pivot(run.run_id, { rows: state.rows, cols: state.cols, filters: state.filters, report_id: run.initial_report_id ?? null }),
+    api.pivot(run.run_id, { rows: state.rows, cols: state.cols, filters: state.filters, report_id: reportCtx ?? run.initial_report_id }),
   );
-  const go = (s: PivotState) => navigate(`${href("runs", run.run_id, "pivot")}?${pivotQuery(s)}`);
+  const go = (s: PivotState) => navigate(`${href("runs", run.run_id, "pivot")}?${pivotQuery(s)}${reportCtx ? `&report=${encodeURIComponent(reportCtx)}` : ""}`);
+  const ctx = reportCtx ? (
+    <p className="state state-ok" data-testid="report-context">
+      Открыто из отчёта <code>{reportCtx}</code> — сводная Run <code>{run.run_id}</code>.{" "}
+      <a href={`${href("runs", run.run_id, "checks")}?report=${encodeURIComponent(reportCtx)}`}>Проверки этого отчёта</a>
+    </p>
+  ) : null;
+
+  if (pivot.error instanceof ApiError && pivot.error.isUnavailable) {
+    return (
+      <div>
+        {ctx}
+        <div className="state state-disabled" role="note" data-testid="pivot-unavailable">
+          <strong>Изменяемая сводная (server rollup) пока недоступна в backend:</strong> <code>{pivot.error.code}</code> — {pivot.error.message}
+          <div>
+            Ниже — базовые факты D4 (фиксированная детализация) с drill-down. Раскладку строк/колонок UI не пересчитывает сам: distinct-итоги должен считать
+            сервер.
+          </div>
+        </div>
+        <BaseFactsView run={run} />
+      </div>
+    );
+  }
 
   return (
     <div>
+      {ctx}
       <PivotControls state={state} onChange={go} />
       <Async value={pivot} what="Расчёт сводной на сервере" isEmpty={(d) => d.cells.length === 0 && d.grand_total.count === 0} empty="Нет данных для выбранных фильтров.">
         {(d) =>

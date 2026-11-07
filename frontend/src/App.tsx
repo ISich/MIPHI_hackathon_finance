@@ -4,7 +4,7 @@ import { useRoute, href } from "./router";
 import { RunsList } from "./screens/RunsList";
 import { NewRun } from "./screens/NewRun";
 import { RunPage } from "./screens/RunPage";
-import { ApplicationView, GroupApplications } from "./screens/Drilldown";
+import { ApplicationView, FactApplications, GroupApplications } from "./screens/Drilldown";
 import { NewScript, ScriptView, ScriptsList } from "./screens/Workspace";
 
 export function App() {
@@ -14,6 +14,8 @@ export function App() {
   if (section === "runs" && id === "new") body = <NewRun />;
   else if (section === "runs" && id && sub === "groups" && subId)
     body = <GroupApplications key={subId} runId={id} group={subId} back={route.query.get("back") ?? ""} />;
+  else if (section === "runs" && id && sub === "fact-apps")
+    body = <FactApplications runId={id} group={route.query.get("g") ?? ""} cnt={route.query.get("cnt") ? Number(route.query.get("cnt")) : null} />;
   else if (section === "runs" && id && sub === "apps" && subId)
     body = <ApplicationView runId={id} appId={subId} group={route.query.get("group")} back={route.query.get("back") ?? ""} />;
   else if (section === "runs" && id) body = <RunPage runId={id} tab={sub} query={route.query} />;

@@ -14,7 +14,8 @@ export function PythonEditor({
 }: {
   value: string;
   onChange: (code: string) => void;
-  onFile?: (filename: string) => void;
+  /** Called with the uploaded file; any later manual edit means the code is no longer that file. */
+  onFile?: (file: File) => void;
   label?: string;
 }) {
   const [fileError, setFileError] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export function PythonEditor({
     }
     const text = await file.text();
     onChange(text);
-    onFile?.(file.name);
+    onFile?.(file);
   }
 
   const lines = value.split("\n").length;

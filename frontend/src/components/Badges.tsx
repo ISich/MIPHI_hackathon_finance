@@ -14,7 +14,7 @@ export function ResultBadge({ result, low }: { result: "PASS" | "FAIL"; low: boo
 }
 
 export function ExecBadge({ status }: { status: ExecutionStatus }) {
-  const ok = status === "SUCCESS";
+  const ok = status === "SUCCEEDED";
   return (
     <span className={`badge ${ok ? "badge-exec-ok" : "badge-exec-error"}`}>
       {ok ? "исполнена" : `ошибка исполнения: ${status}`}

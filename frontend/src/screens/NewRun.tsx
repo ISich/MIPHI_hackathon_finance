@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type FormEvent } from "react";
+import { newIdempotencyKey } from "../api/client";
 import { api } from "../api/instance";
 import { PROCEDURE_SLOTS, type ProcedureSlot, type Script } from "../api/types";
 import { Async, ErrorView } from "../components/StateView";
@@ -22,8 +23,10 @@ export function NewRun() {
   const [checks, setChecks] = useState<Set<string> | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  // One idempotency key per form instance: double submit never silently creates two Runs.
-  const idemKey = useRef(`ui-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  // Retry safety: the same form state reuses the already created configuration and
+  // the same Idempotency-Key, so a retried submit (e.g. after a network error)
+  // replays the accepted Run instead of silently creating a duplicate.
+  const attempt = useRef<{ form: string; configId?: string; key: string } | null>(null);
 
   const byKind = useMemo(() => {
     const m: Record<string, Script[]> = {};
@@ -39,26 +42,25 @@ export function NewRun() {
     setError(null);
     setBusy(true);
     try {
-      let configId = savedId;
-      if (mode === "new") {
-        const cfg = await api.createConfiguration({
-          name,
-          dataset_id: datasetId,
-          slots: Object.fromEntries(
-            Object.entries(slots)
-              .filter(([, v]) => v)
-              .map(([k, v]) => [k, { script_id: v! }]),
-          ),
-          checks: [...selectedChecks].map((script_id) => ({ script_id })),
-        });
-        configId = cfg.config_id;
-      }
-      const acc = await api.createRun({ config_id: configId, idempotency_key: idemKey.current });
-      if (!acc.run_id) throw new Error("Backend не вернул run_id");
-      navigate(href("runs", acc.run_id));
+      const cfgReq = {
+        name,
+        dataset_id: datasetId,
+        slots: Object.fromEntries(
+          Object.entries(slots)
+            .filter(([, v]) => v)
+            .map(([k, v]) => [k, { script_id: v! }]),
+        ),
+        checks: [...selectedChecks].sort().map((script_id) => ({ script_id })),
+      };
+      const form = JSON.stringify(mode === "new" ? cfgReq : { savedId });
+      if (attempt.current?.form !== form) attempt.current = { form, key: newIdempotencyKey() };
+      const a = attempt.current;
+      if (mode === "saved") a.configId = savedId;
+      if (!a.configId) a.configId = (await api.createConfiguration(cfgReq)).config_id;
+      const run = await api.createRun({ configuration_id: a.configId }, a.key);
+      navigate(href("runs", run.run_id));
     } catch (err) {
       setError(err);
-      idemKey.current = `ui-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     } finally {
       setBusy(false);
     }

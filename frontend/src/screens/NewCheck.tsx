@@ -1,32 +1,40 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError } from "../api/client";
+import { ApiError, newIdempotencyKey } from "../api/client";
 import { api } from "../api/instance";
-import type { CheckRun, Run, ScriptRef } from "../api/types";
+import type { CheckRun, Run, Script, ScriptRef } from "../api/types";
 import { PythonEditor } from "../components/PythonEditor";
 import { Async, ErrorView } from "../components/StateView";
 import { useApi } from "../hooks/useApi";
 import { href, navigate } from "../router";
-import { ExecutionModeNote } from "./Workspace";
+import { ExecutionModeNote } from "../components/ExecutionModeNote";
+import { saveScript } from "../api/actions";
 
 export const CHECK_POLL_MS = 1500;
 
 /**
- * "New check" scenario: editor or .py upload → POST /api/scripts (immutable
- * snapshot) → POST /api/runs/{id}/check-runs with the Run's full check set
- * plus the new one → poll check-run → open the returned report_id.
+ * "New check" scenario: editor or .py upload → saved snapshot → POST
+ * /api/runs/{id}/check-runs with the Run's check set plus the new one → poll
+ * the check-run → open the returned report_id explicitly.
  */
 export function NewCheck({ run }: { run: Run }) {
   const kinds = useApi("script-kinds", () => api.scriptKinds());
   const config = useApi(`config:${run.config_id}`, () => api.configuration(run.config_id));
   const [code, setCode] = useState<string | null>(null);
-  const [filename, setFilename] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("Новая проверка");
   const [includeExisting, setIncludeExisting] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [phase, setPhase] = useState<"edit" | "saving" | "running">("edit");
   const [checkRun, setCheckRun] = useState<CheckRun | null>(null);
+  const [saved, setSaved] = useState<{ key: string; script: Script } | null>(null);
+  const crKey = useRef<{ scriptId: string; checks: string; key: string } | null>(null);
   const alive = useRef(true);
-  useEffect(() => () => void (alive.current = false), []);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const checkKind = kinds.data?.find((k) => k.kind === "check");
   const text = code ?? checkKind?.template ?? "";
@@ -35,20 +43,21 @@ export function NewCheck({ run }: { run: Run }) {
     setError(null);
     setPhase("saving");
     try {
-      const script = await api.createScript({
-        kind: "check",
-        source: filename ? "file" : "workspace",
-        name,
-        code: text,
-        ...(filename ? { filename } : {}),
-      });
-      const existing: ScriptRef[] = includeExisting ? config.data?.checks ?? [] : [];
-      const acc = await api.createCheckRun(run.run_id, { checks: [...existing, { script_id: script.script_id }] });
-      if (!acc.check_run_id) throw new Error("Backend не вернул check_run_id");
+      // Re-use the saved snapshot if nothing changed since the last (failed) attempt.
+      const saveKey = JSON.stringify([name, text, file?.name ?? null]);
+      let script = saved?.key === saveKey ? saved.script : null;
+      if (!script) {
+        script = await saveScript("check", name, text, file);
+        setSaved({ key: saveKey, script });
+      }
+      const existing: ScriptRef[] = includeExisting ? (config.data?.checks ?? []).filter((c) => c.script_id !== script!.script_id) : [];
+      const checks = [...existing.map((c) => ({ script_id: c.script_id, params: c.params ?? null })), { script_id: script.script_id }];
+      const checksKey = JSON.stringify(checks);
+      if (crKey.current?.scriptId !== script.script_id || crKey.current.checks !== checksKey)
+        crKey.current = { scriptId: script.script_id, checks: checksKey, key: newIdempotencyKey() };
+      let cr = await api.createCheckRun(run.run_id, { checks }, crKey.current.key);
       setPhase("running");
-      // Poll check-run until terminal, then switch to its (new) report_id explicitly.
       for (;;) {
-        const cr = await api.checkRun(acc.check_run_id);
         if (!alive.current) return;
         setCheckRun(cr);
         if (cr.status === "COMPLETED") {
@@ -56,11 +65,12 @@ export function NewCheck({ run }: { run: Run }) {
           return;
         }
         if (cr.status === "FAILED") {
-          setError(cr.error ? new ApiError(0, cr.error) : new Error("CheckRun завершился с ошибкой (FAILED)"));
+          setError(cr.error ? new ApiError(0, { code: cr.error.code, message: cr.error.message ?? cr.error.code }) : new Error("CheckRun завершился с ошибкой (FAILED)"));
           setPhase("edit");
           return;
         }
         await new Promise((r) => setTimeout(r, CHECK_POLL_MS));
+        cr = await api.checkRun(cr.check_run_id);
       }
     } catch (e) {
       if (!alive.current) return;
@@ -82,10 +92,10 @@ export function NewCheck({ run }: { run: Run }) {
                 <code>{checkKind.entrypoint}</code>
               </p>
               <p>Колонки результата: {checkKind.output_columns.join(", ")}</p>
-              <button type="button" onClick={() => setCode(checkKind.example)}>
+              <button type="button" onClick={() => (setCode(checkKind.example), setFile(null))}>
                 Вставить пример
               </button>{" "}
-              <button type="button" onClick={() => setCode(checkKind.template)}>
+              <button type="button" onClick={() => (setCode(checkKind.template), setFile(null))}>
                 Вставить шаблон
               </button>
             </details>
@@ -102,26 +112,27 @@ export function NewCheck({ run }: { run: Run }) {
         value={text}
         onChange={(c) => {
           setCode(c);
+          setFile(null); // edited text is a workspace script, not the uploaded file
         }}
         onFile={(f) => {
-          setFilename(f);
-          setName(f.replace(/\.py$/, ""));
+          setFile(f);
+          setName(f.name.replace(/\.py$/, ""));
         }}
         label="Код проверки"
       />
-      {filename ? (
-        <p className="muted">
-          Источник: файл <code>{filename}</code>{" "}
-          <button type="button" onClick={() => setFilename(null)}>
-            считать кодом из редактора
-          </button>
-        </p>
-      ) : null}
+      <p className="muted" data-testid="script-source">
+        Источник: {file ? <>файл <code>{file.name}</code> (без изменений)</> : "редактор (workspace)"}
+      </p>
       <label>
-        <input type="checkbox" checked={includeExisting} onChange={(e) => setIncludeExisting(e.target.checked)} /> включить в отчёт исходные проверки конфигурации
-        {config.data ? ` (${config.data.checks.length})` : ""}
+        <input type="checkbox" checked={includeExisting} onChange={(e) => setIncludeExisting(e.target.checked)} /> включить в новый отчёт исходные проверки
+        конфигурации{config.data ? ` (${config.data.checks.length})` : ""}
       </label>
       {error ? <ErrorView error={error} /> : null}
+      {saved && error ? (
+        <p className="muted">
+          Скрипт уже сохранён: <a href={href("scripts", saved.script.script_id)}>{saved.script.name}</a> (rev {saved.script.revision}).
+        </p>
+      ) : null}
       {phase === "running" ? (
         <p role="status">
           Проверки исполняются на сервере… CheckRun <code>{checkRun?.check_run_id}</code>: {checkRun?.status ?? "QUEUED"}

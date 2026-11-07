@@ -5,25 +5,8 @@ import { PythonEditor } from "../components/PythonEditor";
 import { Async, ErrorView } from "../components/StateView";
 import { useApi } from "../hooks/useApi";
 import { href } from "../router";
-
-/** Shows the server's execution mode up front, so a refusal is not a surprise. */
-export function ExecutionModeNote() {
-  const ready = useApi("ready", () => api.ready());
-  const mode = ready.data?.execution_mode;
-  if (!mode) return null;
-  if (mode === "builtin-only")
-    return (
-      <div className="state state-disabled" role="note" data-testid="exec-mode">
-        Сервер в режиме <code>builtin-only</code>: исполняются только встроенные процедуры и проверки. Пользовательский код будет сохранён,
-        но запуск с ним backend отклонит (политика безопасности; включается администратором только для trusted-local на 127.0.0.1).
-      </div>
-    );
-  return (
-    <div className="state state-notready" role="note" data-testid="exec-mode">
-      Режим исполнения сервера: <code>{mode}</code>. Пользовательский Python исполняется как доверенный локальный код — не изолированная песочница.
-    </div>
-  );
-}
+import { saveScript } from "../api/actions";
+import { ExecutionModeNote } from "../components/ExecutionModeNote";
 
 export function ScriptsList() {
   const scripts = useApi("scripts", () => api.scripts());
@@ -100,7 +83,7 @@ export function NewScript({ fromId }: { fromId: string | null }) {
   const [kind, setKind] = useState<ScriptKindName | null>(null);
   const [name, setName] = useState("");
   const [code, setCode] = useState<string | null>(null);
-  const [filename, setFilename] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [saved, setSaved] = useState<Script | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,14 +97,7 @@ export function NewScript({ fromId }: { fromId: string | null }) {
     setBusy(true);
     setError(null);
     try {
-      const s = await api.createScript({
-        kind: effKind,
-        source: filename ? "file" : "workspace",
-        name: effName,
-        code: text,
-        ...(filename ? { filename } : {}),
-      });
-      setSaved(s);
+      setSaved(await saveScript(effKind, effName, text, file));
     } catch (e) {
       setError(e);
     } finally {
@@ -146,6 +122,7 @@ export function NewScript({ fromId }: { fromId: string | null }) {
                 onChange={(e) => {
                   setKind(e.target.value as ScriptKindName);
                   setCode(null);
+                  setFile(null);
                 }}
               >
                 {list.map((k) => (
@@ -162,10 +139,10 @@ export function NewScript({ fromId }: { fromId: string | null }) {
                   <code>{spec.entrypoint}</code>
                 </p>
                 {spec.output_columns.length ? <p>Выходные колонки: {spec.output_columns.join(", ")}</p> : null}
-                <button type="button" onClick={() => setCode(spec.example)}>
+                <button type="button" onClick={() => (setCode(spec.example), setFile(null))}>
                   Вставить пример
                 </button>{" "}
-                <button type="button" onClick={() => setCode(spec.template)}>
+                <button type="button" onClick={() => (setCode(spec.template), setFile(null))}>
                   Вставить шаблон
                 </button>
               </details>
@@ -176,12 +153,18 @@ export function NewScript({ fromId }: { fromId: string | null }) {
             </label>
             <PythonEditor
               value={text}
-              onChange={setCode}
+              onChange={(c) => {
+                setCode(c);
+                setFile(null);
+              }}
               onFile={(f) => {
-                setFilename(f);
-                if (!name) setName(f.replace(/\.py$/, ""));
+                setFile(f);
+                if (!name) setName(f.name.replace(/\.py$/, ""));
               }}
             />
+            <p className="muted" data-testid="script-source">
+              Источник: {file ? <>файл <code>{file.name}</code> (без изменений)</> : "редактор (workspace)"}
+            </p>
             {error ? <ErrorView error={error} /> : null}
             {saved ? (
               <div className="state state-ok" role="status">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { slotOfCodeRef } from "../api/client";
 import { api } from "../api/instance";
 import type { Run, RunEvent } from "../api/types";
 import { RUN_STAGES } from "../api/types";
@@ -51,7 +52,7 @@ export function RunPage({ runId, tab, query }: { runId: string; tab: string | un
         setRun(r);
         setError(null);
         if (ev.items.length) {
-          lastSeq.current = ev.last_seq ?? Math.max(...ev.items.map((e) => e.seq));
+          lastSeq.current = Math.max(ev.next_after, ...ev.items.map((e) => e.seq));
           setEvents((prev) => {
             const seen = new Set(prev.map((e) => e.seq));
             return [...prev, ...ev.items.filter((e) => !seen.has(e.seq))];
@@ -119,13 +120,19 @@ function Monitor({ run, events }: { run: Run; events: RunEvent[] }) {
         <dt>Статус</dt>
         <dd data-testid="run-status">{run.status}</dd>
         <dt>Этап</dt>
-        <dd data-testid="run-stage">{run.stage ?? "—"}</dd>
+        <dd data-testid="run-stage">
+          {run.stage ?? "—"}
+          {run.substep ? ` / ${run.substep}` : ""}
+        </dd>
         <dt>Конфигурация</dt>
         <dd>{run.config_id}</dd>
-        <dt>Data revision</dt>
-        <dd>{run.data_revision ?? "—"}</dd>
+        <dt>Dataset revision</dt>
+        <dd>{run.dataset_revision_id}</dd>
         <dt>Initial report</dt>
-        <dd>{run.initial_report_id ?? "—"}</dd>
+        <dd>
+          {run.initial_report_id} ({run.report_status ?? "—"}
+          {run.checks_completeness ? `, ${run.checks_completeness}` : ""})
+        </dd>
       </dl>
       <ol className="stages" aria-label="Этапы">
         {RUN_STAGES.map((s, i) => (
@@ -146,12 +153,6 @@ function Monitor({ run, events }: { run: Run; events: RunEvent[] }) {
         </div>
       ) : null}
       {run.status !== "COMPLETED" ? <p className="muted">Отчёт станет доступен после завершения Run.</p> : null}
-      {run.diagnostics?.length ? (
-        <details>
-          <summary>Диагностика ({run.diagnostics.length})</summary>
-          <pre className="details">{JSON.stringify(run.diagnostics, null, 2)}</pre>
-        </details>
-      ) : null}
       <h2>Журнал</h2>
       {events.length === 0 ? <p className="muted">Событий пока нет.</p> : null}
       <table className="table" aria-label="Журнал событий">
@@ -160,10 +161,13 @@ function Monitor({ run, events }: { run: Run; events: RunEvent[] }) {
             <tr key={e.seq} className={`level-${String(e.level).toLowerCase()}`}>
               <td>{e.seq}</td>
               <td>{e.ts}</td>
-              <td>{e.stage ?? ""}</td>
+              <td>
+                {e.stage ?? ""}
+                {e.substep ? ` / ${e.substep}` : ""}
+              </td>
               <td>{e.level}</td>
               <td>{e.message}</td>
-              <td>{e.code_ref && e.stage ? <CodeLink runId={run.run_id} stage={e.stage} /> : null}</td>
+              <td>{slotOfCodeRef(e.code_ref) ? <CodeLink runId={run.run_id} slot={slotOfCodeRef(e.code_ref)!} /> : null}</td>
             </tr>
           ))}
         </tbody>
@@ -172,17 +176,18 @@ function Monitor({ run, events }: { run: Run; events: RunEvent[] }) {
   );
 }
 
-function CodeLink({ runId, stage }: { runId: string; stage: string }) {
+/** Code + params snapshot actually executed for a slot (normalize|compare|segments|aggregate|check-NN). */
+function CodeLink({ runId, slot }: { runId: string; slot: string }) {
   const [code, setCode] = useState<string | null>(null);
   const [err, setErr] = useState<unknown>(null);
   return (
     <details
       onToggle={(e) => {
         if ((e.currentTarget as HTMLDetailsElement).open && code === null)
-          api.code(runId, stage).then((c) => setCode(c.code), setErr);
+          api.code(runId, slot).then((c) => setCode(`# ${c.name} [${c.source}] rev ${c.script_revision} sha256 ${c.code_sha256}\n# params: ${JSON.stringify(c.params)}\n\n${c.code}`), setErr);
       }}
     >
-      <summary>код</summary>
+      <summary>код {slot}</summary>
       {err ? <ErrorView error={err} /> : code === null ? <Loading /> : <pre className="code-view">{code}</pre>}
     </details>
   );

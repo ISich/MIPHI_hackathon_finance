@@ -1,36 +1,42 @@
 // =============================================================================
 // DEVELOPMENT-ONLY MOCK BACKEND. NOT A REAL CALCULATION.
 //
-// Implements the same HTTP wire contract as ApiClient expects, as a `fetch`
-// replacement, so the real client/parsing code path is exercised. All data is
-// synthetic (APP_ID "MOCK-…"), numbers are NOT produced by decision_diff and
-// must never be shown as results. Enabled only by VITE_API_MODE=mock, and the
-// UI then shows a permanent MOCK banner.
+// A `fetch` replacement that mirrors the wire format of backend-night
+// (dd_backend/models.py, read 2026-11-07), so the real ApiClient code path is
+// exercised. All data is synthetic (APP_ID "MOCK-…"); numbers are NOT
+// produced by decision_diff. Enabled only with `vite --mode mock`; the UI then
+// shows a permanent MOCK banner. Never use it as evidence of E2E.
 // =============================================================================
 import type {
   CheckExecution,
   CheckRow,
+  CheckRun,
   ComparisonRow,
   Configuration,
   Dataset,
   Report,
+  ReportChecks,
   Run,
   RunEvent,
   Script,
   ScriptKind,
   ScriptRef,
 } from "../api/types";
-import { RUN_STAGES, PROCEDURE_SLOTS } from "../api/types";
+import { PROCEDURE_SLOTS, RUN_STAGES } from "../api/types";
 
 export interface MockOptions {
   /** Mirrors backend DD_EXECUTION_MODE: false = builtin-only (backend default). */
   customExecution: boolean;
-  /** How many GET polls a run/check-run needs per stage. */
+  /**
+   * Emulate the FUTURE D4 server pivot (POST /pivot + group locators). Default
+   * false = like the real backend today: 501 ANALYTICS_UNAVAILABLE.
+   */
+  serverPivot?: boolean;
+  /** How many GET polls a run needs per stage. */
   ticksPerStage?: number;
 }
 
 type Json = Record<string, unknown>;
-
 const NOW = "2026-11-07T00:00:00Z";
 
 function json(status: number, body: unknown): Response {
@@ -46,20 +52,13 @@ function err(status: number, code: string, message: string, details: Json = {}):
 // ------------------------------------------------------------- fixture data
 const APPS = ["MOCK-0001", "MOCK-0002", "MOCK-0003", "MOCK-0004", "MOCK-0005", "MOCK-0006"];
 
-function cmp(
-  app: string,
-  path: string,
-  before: string,
-  after: string,
-  type: ComparisonRow["CHANGE_TYPE"],
-  arrayKey = "",
-): ComparisonRow {
+function cmp(app: string, path: string, before: string, after: string, type: ComparisonRow["CHANGE_TYPE"], arrayKey = ""): ComparisonRow {
   const parts = path.split(".");
   return {
     APP_ID: app,
     PREFIX: parts[0] ?? "",
     CLASS: parts[1] ?? "",
-    SUFFIX: parts.slice(2).join(".") || "",
+    SUFFIX: parts.slice(2).join("."),
     ARRAY_KEY: arrayKey,
     KEY: parts[parts.length - 1] ?? "",
     PATH: path,
@@ -91,22 +90,15 @@ const COMPARISON: ComparisonRow[] = [
 const SEGMENTS: Record<string, Json> = Object.fromEntries(
   APPS.map((app) => {
     const d = COMPARISON.find((r) => r.APP_ID === app && r.PATH === "decision.result.decision")!;
-    return [
-      app,
-      {
-        APP_ID: app,
-        DECISION_BEFORE: d.VALUE_BEFORE,
-        DECISION_AFTER: d.VALUE_AFTER,
-        DECISION_CHANGED: d.DIFF_FLAG,
-        PRODUCTS: "MOCK_PRODUCT",
-      },
-    ];
+    return [app, { APP_ID: app, DECISION_BEFORE: d.VALUE_BEFORE, DECISION_AFTER: d.VALUE_AFTER, DECISION_CHANGED: d.DIFF_FLAG, PRODUCTS: "MOCK_PRODUCT" }];
   }),
 );
 
+const FACT_DIMS = ["PREFIX", "CLASS", "SUFFIX", "PATH", "ARRAY_KEY", "KEY", "VALUE_ADJUSTED", "DIFF_FLAG", "SOURCE"] as const;
+type FactDims = Record<(typeof FACT_DIMS)[number], string | number>;
 interface Fact {
   APP_ID: string;
-  dims: Record<string, string | number>;
+  dims: FactDims;
 }
 
 const FACTS: Fact[] = COMPARISON.flatMap((r) => {
@@ -123,15 +115,25 @@ const FACTS: Fact[] = COMPARISON.flatMap((r) => {
       ARRAY_KEY: r.ARRAY_KEY,
       KEY: r.KEY,
       VALUE_ADJUSTED: s === "BEFORE" ? r.ADJUSTED_BEFORE : r.ADJUSTED_AFTER,
-      SOURCE: s,
       DIFF_FLAG: r.DIFF_FLAG,
-      CHANGE_TYPE: r.CHANGE_TYPE,
-      DECISION_CHANGED: Number(SEGMENTS[r.APP_ID]!.DECISION_CHANGED),
+      SOURCE: s,
     },
   }));
 });
 
-const PIVOT_DIMS = Object.keys(FACTS[0]!.dims);
+/** Base facts like DuckDBMart.pivot(): grouped by all dims, CNT = distinct apps. */
+const BASE_FACTS = (() => {
+  const m = new Map<string, { dims: FactDims; apps: Set<string> }>();
+  for (const f of FACTS) {
+    const k = JSON.stringify(f.dims);
+    const e = m.get(k) ?? { dims: f.dims, apps: new Set<string>() };
+    e.apps.add(f.APP_ID);
+    m.set(k, e);
+  }
+  return [...m.values()]
+    .map((e) => ({ ...e.dims, CNT: e.apps.size }))
+    .sort((a, b) => `${a.PATH}|${a.ARRAY_KEY}|${a.SOURCE}|${a.VALUE_ADJUSTED}`.localeCompare(`${b.PATH}|${b.ARRAY_KEY}|${b.SOURCE}|${b.VALUE_ADJUSTED}`));
+})();
 
 const CHECK_KIND: ScriptKind = {
   kind: "check",
@@ -140,42 +142,30 @@ const CHECK_KIND: ScriptKind = {
   template:
     "DEFAULTS = {}\n\ndef run(mart, params=None):\n    p = {**DEFAULTS, **(params or {})}\n    return []\n\nCHECK = {'id': 'my_check', 'label': 'My check', 'params': DEFAULTS, 'entrypoint': run}\n",
   example:
-    "def run(mart, params=None):\n    total = mart.total_apps()\n    changed = mart.app_ids(diff_flag=1)\n    return [{'LABEL': CHECK['label'], 'SOURCE': 'AFTER', 'ARGUMENT': 'all', 'CNT': len(changed), 'TOTAL': total,\n             'METRIC': len(changed) / total, 'APP_IDS': changed[:20], 'RESULT': 'PASS', 'CONFIDENCE': 'LOW'}]\n\nCHECK = {'id': 'changed_share', 'label': 'Share of changed apps', 'params': {}, 'entrypoint': run}\n",
+    "def run(mart, params=None):\n    total = mart.total_apps()\n    changed = mart.app_ids(diff_flag=1)\n    share = len(changed) / total if total else 0.0\n    return [{'LABEL': CHECK['label'], 'SOURCE': 'AFTER', 'ARGUMENT': 'all', 'CNT': len(changed),\n             'TOTAL': total, 'METRIC': round(share, 4), 'APP_IDS': changed[:20],\n             'RESULT': 'FAIL' if share > params['max_share'] else 'PASS',\n             'CONFIDENCE': 'HIGH' if total >= 30 else 'LOW'}]\n\nCHECK = {'id': 'changed_share', 'label': 'Share of changed apps', 'params': {'max_share': 0.5}, 'entrypoint': run}\n",
 };
 
-const PROC_KINDS: ScriptKind[] = PROCEDURE_SLOTS.map((k) => ({
-  kind: k,
-  entrypoint: `${k}(...)  # mock contract text`,
-  output_columns: [],
-  template: `def ${k}(*args, **kwargs):\n    return []\n`,
-  example: `# example for ${k}\n`,
-}));
-
-const BUILTIN_CHECKS: Array<[string, string]> = [
-  ["check_ar_drop_by_product", "Падение AR по продукту"],
-  ["check_attribute_new_loss", "Изменился состав атрибутов"],
-  ["check_external_score_drift", "Дрейф внешнего скора"],
-  ["check_stop_factor_disappeared", "Исчез стоп-фактор"],
-  ["check_target_model_changed", "Сменилась целевая модель"],
+const BUILTIN_CHECKS: Array<[string, string, string]> = [
+  ["check_ar_drop_by_product", "ar_drop_by_product", "Падение AR по продукту"],
+  ["check_attribute_new_loss", "attribute_new_loss", "Изменился состав атрибутов"],
+  ["check_external_score_drift", "external_score_drift", "Дрейф внешнего скора"],
+  ["check_stop_factor_disappeared", "stop_factor_disappeared", "Исчез стоп-фактор"],
+  ["check_target_model_changed", "target_model_changed", "Сменилась целевая модель"],
 ];
 
 // ------------------------------------------------------------- state
 interface MockRun extends Run {
   _ticks: number;
-  _customProcedure: boolean;
+  _checks: ScriptRef[];
 }
-interface MockCheckRun {
-  check_run_id: string;
-  run_id: string;
-  report_id: string;
-  checks: ScriptRef[];
-  status: string;
+interface MockCheckRun extends CheckRun {
   _ticks: number;
-  created_at: string;
+  _refs: ScriptRef[];
 }
 
 export function createMockFetch(opts: MockOptions) {
   const ticksPerStage = opts.ticksPerStage ?? 1;
+  const custom = opts.customExecution;
   let seq = 0;
   const id = (p: string) => `${p}_mock${++seq}`;
 
@@ -189,48 +179,36 @@ export function createMockFetch(opts: MockOptions) {
       before: "mock_before.json",
       after: "mock_after.json",
       created_at: NOW,
-      revisions: [
-        {
-          revision_id: "rev_mock1",
-          fingerprint: "mock",
-          pairs: APPS.length,
-          missing_before: [],
-          missing_after: [],
-          created_at: NOW,
-        },
-      ],
+      revisions: [{ revision_id: "rev_mock1", fingerprint: "mock", pairs: APPS.length, missing_before: [], missing_after: [], created_at: NOW }],
     },
   ];
-
-  const scripts: Script[] = [
-    ...PROCEDURE_SLOTS.map<Script>((k) => ({
-      script_id: `scr_builtin_${k}`,
+  const kinds: ScriptKind[] = [
+    ...PROCEDURE_SLOTS.map<ScriptKind>((k) => ({
       kind: k,
-      source: "builtin",
-      name: `builtin ${k} (mock)`,
-      filename: null,
-      builtin_ref: `builtin:${k}`,
-      shared: true,
-      params: {},
-      revision: 1,
-      code_sha256: "mock",
-      created_at: NOW,
-      updated_at: NOW,
+      entrypoint: `${k}(...)  # MOCK contract text`,
+      output_columns: [],
+      template: `def ${k}(*args, **kwargs):\n    return []\n`,
+      example: `# MOCK example for ${k}\n`,
     })),
-    ...BUILTIN_CHECKS.map<Script>(([name]) => ({
-      script_id: `scr_${name}`,
-      kind: "check",
-      source: "builtin",
-      name,
-      filename: `${name}.py`,
-      builtin_ref: `builtin:check:${name}.py`,
-      shared: true,
-      params: {},
-      revision: 1,
-      code_sha256: "mock",
-      created_at: NOW,
-      updated_at: NOW,
-    })),
+    CHECK_KIND,
+  ].map((k) => ({ ...k, sources: ["builtin", "workspace", "file"], custom_execution_enabled: custom }));
+
+  const script = (p: Partial<Script> & Pick<Script, "script_id" | "kind" | "name" | "source">): Script => ({
+    filename: null,
+    builtin_ref: null,
+    shared: false,
+    params: {},
+    revision: 1,
+    code_sha256: "mock000000000000",
+    created_at: NOW,
+    updated_at: NOW,
+    ...p,
+  });
+  const scripts: Script[] = [
+    ...PROCEDURE_SLOTS.map((k) => script({ script_id: `scr_builtin_${k}`, kind: k, source: "builtin", name: `builtin ${k} (MOCK)`, builtin_ref: `builtin:${k}`, shared: true })),
+    ...BUILTIN_CHECKS.map(([file]) =>
+      script({ script_id: `scr_${file}`, kind: "check", source: "builtin", name: file, filename: `${file}.py`, builtin_ref: `builtin:check:${file}.py`, shared: true }),
+    ),
   ];
   const codeById = new Map<string, string>();
   const configs: Configuration[] = [];
@@ -238,38 +216,52 @@ export function createMockFetch(opts: MockOptions) {
   const events = new Map<string, RunEvent[]>();
   const checkRuns: MockCheckRun[] = [];
   const reports: Report[] = [];
-  const reportExecutions = new Map<string, CheckExecution[]>();
+  const docs = new Map<string, ReportChecks>();
+  const idem = new Map<string, string>();
 
-  const isCustom = (sid: string) => scripts.find((s) => s.script_id === sid)?.source !== "builtin";
+  const scriptById = (sid: string) => scripts.find((s) => s.script_id === sid);
+  const isCustom = (sid: string) => scriptById(sid)?.source !== "builtin";
+  const disabled = (ids: string[]) =>
+    err(403, "CUSTOM_EXECUTION_DISABLED", "Custom (workspace/file) code execution is disabled in the safe builtin-only mode; nothing was started.", {
+      execution_mode: "builtin-only",
+      custom_scripts: ids,
+    });
 
-  function pushEvent(run: MockRun, level: string, message: string) {
+  function pushEvent(run: MockRun, message: string, codeRef: string | null = null, level = "INFO") {
     const list = events.get(run.run_id) ?? [];
     list.push({
       seq: list.length + 1,
-      run_id: run.run_id,
+      ts: NOW,
+      check_run_id: null,
       stage: run.stage,
+      substep: null,
       level,
       message,
-      processed: run.processed ?? null,
-      total: run.total ?? null,
-      ts: NOW,
-      code_ref: run.stage ? `/api/runs/${run.run_id}/code/${run.stage}` : null,
+      processed: run.processed,
+      total: run.total,
+      code_ref: codeRef,
     });
     events.set(run.run_id, list);
   }
 
-  function executeCheck(ref: ScriptRef): CheckExecution {
-    const s = scripts.find((x) => x.script_id === ref.script_id)!;
-    const base = {
+  function executeCheck(ref: ScriptRef, i: number): { ex: CheckExecution; rows: CheckRow[]; diag: Json[] } {
+    const s = scriptById(ref.script_id)!;
+    const builtin = BUILTIN_CHECKS.find(([f]) => f === s.name);
+    const checkId = builtin ? builtin[1] : s.name;
+    const label = builtin ? builtin[2] : s.name;
+    const ex: CheckExecution = {
       execution_id: id("exe"),
-      check_id: s.name,
+      slot: `check-${String(i + 1).padStart(2, "0")}`,
       script_id: s.script_id,
-      label: s.name,
+      check_id: checkId,
+      label,
       params: { ...(s.params ?? {}), ...(ref.params ?? {}) },
-      duration_s: 0.01,
+      execution_status: "SUCCEEDED",
+      rows_count: 0,
+      duration_seconds: 0.01,
     };
     const row = (r: Partial<CheckRow>): CheckRow => ({
-      LABEL: s.name,
+      LABEL: label,
       SOURCE: "AFTER",
       ARGUMENT: "",
       CNT: 0,
@@ -280,47 +272,99 @@ export function createMockFetch(opts: MockOptions) {
       CONFIDENCE: "HIGH",
       ...r,
     });
-    switch (s.name) {
-      case "check_ar_drop_by_product":
-        return { ...base, execution_status: "SUCCESS", rows: [row({ ARGUMENT: "MOCK_PRODUCT", CNT: 2, METRIC: 0.3333, APP_IDS: ["MOCK-0003"], RESULT: "FAIL", CONFIDENCE: "HIGH" })] };
-      case "check_attribute_new_loss":
-        return {
-          ...base,
-          execution_status: "SUCCESS",
-          rows: [
-            row({ SOURCE: "AFTER", ARGUMENT: "offer.top.amount", CNT: 1, METRIC: 0.1667, APP_IDS: ["MOCK-0005"], RESULT: "FAIL", CONFIDENCE: "LOW" }),
-            row({ SOURCE: "BEFORE", ARGUMENT: "rules.stop.factor", CNT: 1, METRIC: 0.1667, APP_IDS: ["MOCK-0002"], RESULT: "FAIL", CONFIDENCE: "LOW" }),
-          ],
-        };
-      case "check_external_score_drift":
-        return { ...base, execution_status: "ERROR", rows: [], diagnostics: { error_type: "KeyError", message: "MOCK: 'SCORE_OKB_BEFORE' (имитация ошибки исполнения)" } };
-      case "check_stop_factor_disappeared":
-        return { ...base, execution_status: "SUCCESS", rows: [row({ ARGUMENT: "", RESULT: "PASS" })] };
-      case "check_target_model_changed":
-        return { ...base, execution_status: "SUCCESS", rows: [] };
+    let rows: CheckRow[] = [];
+    let diag: Json[] = [];
+    switch (checkId) {
+      case "ar_drop_by_product":
+        rows = [row({ ARGUMENT: "MOCK_PRODUCT", CNT: 2, METRIC: 0.3333, APP_IDS: ["MOCK-0003"], RESULT: "FAIL" })];
+        break;
+      case "attribute_new_loss":
+        rows = [
+          row({ SOURCE: "AFTER", ARGUMENT: "offer.top.amount", CNT: 1, METRIC: 0.1667, APP_IDS: ["MOCK-0005"], RESULT: "FAIL", CONFIDENCE: "LOW" }),
+          row({ SOURCE: "BEFORE", ARGUMENT: "rules.stop.factor", CNT: 1, METRIC: 0.1667, APP_IDS: ["MOCK-0002"], RESULT: "FAIL", CONFIDENCE: "LOW" }),
+        ];
+        break;
+      case "external_score_drift":
+        ex.execution_status = "ERROR";
+        diag = [{ check: checkId, error_type: "KeyError", message: "MOCK: 'SCORE_OKB_BEFORE' (имитация ошибки исполнения)" }];
+        break;
+      case "stop_factor_disappeared":
+        rows = [row({ RESULT: "PASS" })];
+        break;
+      case "target_model_changed":
+        rows = [];
+        break;
       default: {
         const code = codeById.get(s.script_id) ?? "";
         if (/raise\s/.test(code)) {
-          return { ...base, execution_status: "ERROR", rows: [], diagnostics: { error_type: "RuntimeError", message: "MOCK: исключение в пользовательской проверке" } };
+          ex.execution_status = "ERROR";
+          diag = [{ check: checkId, error_type: "RuntimeError", message: "MOCK: исключение в пользовательской проверке" }];
+        } else {
+          rows = [row({ ARGUMENT: "all", CNT: 3, METRIC: 0.5, APP_IDS: ["MOCK-0001", "MOCK-0003"], RESULT: "FAIL", CONFIDENCE: "LOW" })];
         }
-        return { ...base, execution_status: "SUCCESS", rows: [row({ ARGUMENT: "all", CNT: 3, METRIC: 0.5, APP_IDS: ["MOCK-0001", "MOCK-0003"], RESULT: "FAIL", CONFIDENCE: "LOW" })] };
       }
     }
+    ex.rows_count = rows.length;
+    return { ex, rows, diag };
   }
 
-  function makeReport(runId: string, checkRunId: string, initial: boolean, checks: ScriptRef[]): Report {
-    const r: Report = {
-      report_id: id("rep"),
-      run_id: runId,
-      data_revision: "rev_mock1",
-      check_run_id: checkRunId,
-      status: "PENDING",
+  function newCheckRun(run: MockRun, refs: ScriptRef[], initial: boolean): MockCheckRun {
+    const crId = id("chk");
+    const repId = id("rep");
+    const cr: MockCheckRun = {
+      check_run_id: crId,
+      run_id: run.run_id,
+      dataset_revision_id: "rev_mock1",
+      report_id: repId,
+      initial,
+      status: "QUEUED",
+      selected: refs.map((r) => ({ ...r })),
+      executions: [],
+      error: null,
       created_at: NOW,
-      is_initial: initial,
+      started_at: null,
+      finished_at: null,
+      links: { self: `/api/check-runs/${crId}` },
+      _ticks: 0,
+      _refs: refs,
     };
-    reports.push(r);
-    reportExecutions.set(r.report_id, checks.map(executeCheck));
-    return r;
+    checkRuns.push(cr);
+    reports.push({
+      report_id: repId,
+      run_id: run.run_id,
+      dataset_revision_id: "rev_mock1",
+      check_run_id: crId,
+      status: "PENDING",
+      completeness: null,
+      sha256: null,
+      created_at: NOW,
+      published_at: null,
+      links: { checks: `/api/reports/${repId}/checks`, html: `/api/reports/${repId}/checks.html` },
+    });
+    return cr;
+  }
+
+  function finishCheckRun(cr: MockCheckRun) {
+    const results = cr._refs.map(executeCheck);
+    cr.executions = results.map((r) => r.ex);
+    cr.status = "COMPLETED";
+    cr.finished_at = NOW;
+    const rep = reports.find((r) => r.report_id === cr.report_id)!;
+    rep.status = "PUBLISHED";
+    rep.published_at = NOW;
+    rep.completeness = !results.length ? "NO_CHECKS_SELECTED" : results.every((r) => r.ex.execution_status === "SUCCEEDED") ? "COMPLETE" : "INCOMPLETE";
+    docs.set(rep.report_id, {
+      report_id: rep.report_id,
+      run_id: cr.run_id,
+      check_run_id: cr.check_run_id,
+      dataset_revision_id: "rev_mock1",
+      completeness: rep.completeness,
+      summary: { total_apps: APPS.length },
+      checks: results.flatMap((r) => r.rows),
+      diagnostics: results.flatMap((r) => r.diag),
+      timings_seconds: Object.fromEntries(results.map((r) => [r.ex.check_id ?? r.ex.slot, r.ex.duration_seconds])),
+      executions: results.map((r) => r.ex),
+    });
   }
 
   function advanceRun(run: MockRun) {
@@ -330,116 +374,105 @@ export function createMockFetch(opts: MockOptions) {
       run.status = "RUNNING";
       run.stage = RUN_STAGES[0];
       run.started_at = NOW;
-      pushEvent(run, "INFO", "Run started (MOCK)");
+      pushEvent(run, "Run started (MOCK)");
       return;
     }
     if (run._ticks % ticksPerStage !== 0) return;
-    const idx = RUN_STAGES.indexOf(run.stage as (typeof RUN_STAGES)[number]);
-    if (run.stage === "NORMALIZING") {
-      run.processed = APPS.length;
-    }
+    const idx = RUN_STAGES.indexOf(run.stage!);
     if (idx >= 0 && idx < RUN_STAGES.length - 1) {
       run.stage = RUN_STAGES[idx + 1]!;
-      pushEvent(run, "INFO", `Stage ${run.stage} (MOCK)`);
+      const slot = { NORMALIZING: "normalize", COMPARING: "compare", AGGREGATING: "aggregate" }[run.stage as string];
       if (run.stage === "NORMALIZING") run.processed = 0;
+      if (run.stage === "COMPARING") run.processed = APPS.length;
+      pushEvent(run, `Stage ${run.stage} (MOCK)`, slot ? `${slot}@mock00000000` : null);
       return;
     }
-    // finalize
-    const cfg = configs.find((c) => c.config_id === run.config_id)!;
-    const crId = id("chk");
-    const rep = makeReport(run.run_id, crId, true, cfg.checks);
-    rep.status = "READY";
-    checkRuns.push({ check_run_id: crId, run_id: run.run_id, report_id: rep.report_id, checks: cfg.checks, status: "COMPLETED", _ticks: 0, created_at: NOW });
-    run.initial_report_id = rep.report_id;
+    const cr = checkRuns.find((c) => c.check_run_id === run.initial_check_run_id)!;
+    finishCheckRun(cr);
     run.status = "COMPLETED";
     run.finished_at = NOW;
-    pushEvent(run, "INFO", "Run completed (MOCK)");
-  }
-
-  function advanceCheckRun(cr: MockCheckRun) {
-    if (cr.status === "COMPLETED") return;
-    cr._ticks++;
-    if (cr.status === "QUEUED") cr.status = "RUNNING";
-    else {
-      cr.status = "COMPLETED";
-      reports.find((r) => r.report_id === cr.report_id)!.status = "READY";
-    }
+    run.report_status = "PUBLISHED";
+    run.checks_completeness = reports.find((r) => r.report_id === run.initial_report_id)!.completeness;
+    pushEvent(run, "Run completed (MOCK)");
   }
 
   const encodeGroup = (o: unknown) => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
   const decodeGroup = (s: string) => JSON.parse(decodeURIComponent(escape(atob(s)))) as { run: string; match: Record<string, unknown> };
-
-  function matchFacts(match: Record<string, unknown>): Set<string> {
+  const matchFacts = (match: Record<string, unknown>) => {
     const out = new Set<string>();
     for (const f of FACTS) {
-      let ok = true;
-      for (const [k, v] of Object.entries(match)) {
-        const allowed = Array.isArray(v) ? v.map(String) : [String(v)];
-        if (!allowed.includes(String(f.dims[k]))) {
-          ok = false;
-          break;
-        }
-      }
+      const ok = Object.entries(match).every(([k, v]) => (Array.isArray(v) ? v.map(String) : [String(v)]).includes(String(f.dims[k as keyof FactDims])));
       if (ok) out.add(f.APP_ID);
     }
     return out;
-  }
-
-  function completedRun(runId: string): MockRun | Response {
+  };
+  const completedRun = (runId: string): MockRun | Response => {
     const run = runs.find((r) => r.run_id === runId);
     if (!run) return err(404, "NOT_FOUND", "run not found", { resource: "run", id: runId });
-    if (run.status !== "COMPLETED") return err(409, "NOT_READY", "Run is not completed yet", { status: run.status });
+    if (run.status !== "COMPLETED") return err(409, "NOT_READY", "Analytics are available only after the run COMPLETED", { status: run.status });
     return run;
+  };
+  const strip = (run: MockRun): Run => {
+    const { _ticks, _checks, ...rest } = run;
+    void _ticks;
+    void _checks;
+    return rest;
+  };
+  const stripCr = (cr: MockCheckRun): CheckRun => {
+    const { _ticks, _refs, ...rest } = cr;
+    void _ticks;
+    void _refs;
+    return rest;
+  };
+
+  function createScript(kind: string, name: string, code: string, source: "workspace" | "file", filename: string | null, params: Json): Response {
+    if (!kinds.some((k) => k.kind === kind)) return err(422, "SCRIPT_KIND_INVALID", "Unknown script kind");
+    if (!code.trim()) return err(422, "CODE_INVALID", "Script is empty");
+    if (/^\s*def\s+\w+\([^)]*$/m.test(code)) return err(422, "CODE_SYNTAX_ERROR", "Python syntax error", { line: 1, msg: "MOCK syntax check" });
+    if (source === "file" && !(filename && /^[A-Za-z0-9_-]{1,80}\.py$/.test(filename))) return err(422, "SCRIPT_FILENAME_INVALID", "Uploaded file must be a plain name ending with .py");
+    const s = script({ script_id: id("scr"), kind: kind as Script["kind"], source, name, filename, params, code_sha256: `mock${String(seq).padStart(12, "0")}` });
+    scripts.push(s);
+    codeById.set(s.script_id, code);
+    return json(201, { ...s, code });
   }
 
-  async function handle(method: string, url: URL, body: Json | undefined): Promise<Response> {
+  async function handle(method: string, url: URL, body: Json | undefined, form: FormData | undefined, headers: Headers): Promise<Response> {
     const p = url.pathname;
     let m: RegExpMatchArray | null;
+    const idemKey = headers.get("Idempotency-Key");
 
-    if (p === "/ready") return json(200, { ready: true, execution_mode: opts.customExecution ? "trusted-local" : "builtin-only", mock: true });
+    if (p === "/ready") return json(200, { ready: true, checks: [], execution_mode: custom ? "trusted-local" : "builtin-only", warnings: ["MOCK backend"] });
     if (p === "/api/datasets" && method === "GET") return json(200, datasets);
-    if (p === "/api/script-kinds") return json(200, [...PROC_KINDS, CHECK_KIND]);
+    if (p === "/api/script-kinds") return json(200, kinds);
     if (p === "/api/scripts" && method === "GET") {
       const kind = url.searchParams.get("kind");
       return json(200, scripts.filter((s) => !kind || s.kind === kind));
     }
     if (p === "/api/scripts" && method === "POST") {
       const b = body ?? {};
-      const code = String(b.code ?? "");
-      if (!code.trim()) return err(422, "CODE_INVALID", "Script is empty");
-      if (/^\s*def\s+\w+\([^)]*$/m.test(code)) return err(422, "CODE_SYNTAX_ERROR", "Python syntax error", { line: 1, msg: "MOCK syntax check" });
-      const s: Script = {
-        script_id: id("scr"),
-        kind: b.kind as Script["kind"],
-        source: b.source as Script["source"],
-        name: String(b.name ?? "unnamed"),
-        filename: (b.filename as string) ?? null,
-        builtin_ref: null,
-        shared: false,
-        params: (b.params as Json) ?? {},
-        revision: 1,
-        code_sha256: `mock${seq}`,
-        created_at: NOW,
-        updated_at: NOW,
-      };
-      scripts.push(s);
-      codeById.set(s.script_id, code);
-      return json(201, { ...s, code });
+      const extra = Object.keys(b).filter((k) => !["kind", "name", "code", "params"].includes(k));
+      if (extra.length) return err(422, "VALIDATION_ERROR", "Request validation failed", { errors: extra.map((k) => ({ loc: ["body", k], type: "extra_forbidden" })) });
+      return createScript(String(b.kind), String(b.name ?? ""), String(b.code ?? ""), "workspace", null, (b.params as Json) ?? {});
+    }
+    if (p === "/api/scripts/upload" && method === "POST") {
+      if (!form) return err(422, "VALIDATION_ERROR", "multipart form expected");
+      const file = form.get("file");
+      if (!(file instanceof Blob)) return err(422, "VALIDATION_ERROR", "file is required");
+      const fname = (file as File).name ?? null;
+      return createScript(String(form.get("kind")), String(form.get("name") ?? ""), await file.text(), "file", fname, JSON.parse(String(form.get("params") ?? "{}")));
     }
     if ((m = p.match(/^\/api\/scripts\/([^/]+)$/))) {
-      const s = scripts.find((x) => x.script_id === decodeURIComponent(m![1]!));
-      if (!s) return err(404, "NOT_FOUND", "script not found");
+      const s = scriptById(decodeURIComponent(m[1]!));
+      if (!s) return err(404, "NOT_FOUND", "script not found", { resource: "script" });
       return json(200, { ...s, code: codeById.get(s.script_id) ?? `# MOCK builtin source of ${s.name}\n` });
     }
     if (p === "/api/configurations" && method === "GET") return json(200, configs);
     if (p === "/api/configurations" && method === "POST") {
       const b = body ?? {};
-      if (!datasets.some((d) => d.dataset_id === b.dataset_id)) return err(404, "NOT_FOUND", "dataset not found");
-      const slotsIn = (b.slots as Record<string, ScriptRef>) ?? {};
-      const slots = Object.fromEntries(
-        PROCEDURE_SLOTS.map((k) => [k, { script_id: slotsIn[k]?.script_id ?? `scr_builtin_${k}`, params: slotsIn[k]?.params ?? null }]),
-      ) as Configuration["slots"];
-      const checks = (b.checks as ScriptRef[] | null | undefined) ?? scripts.filter((s) => s.kind === "check" && s.shared).map((s) => ({ script_id: s.script_id }));
+      if (!datasets.some((d) => d.dataset_id === b.dataset_id)) return err(404, "NOT_FOUND", "dataset not found", { resource: "dataset" });
+      const slotsIn = (b.slots as Record<string, Partial<ScriptRef>>) ?? {};
+      const slots = Object.fromEntries(PROCEDURE_SLOTS.map((k) => [k, { script_id: slotsIn[k]?.script_id ?? `scr_builtin_${k}`, params: slotsIn[k]?.params ?? null }]));
+      const checks = (b.checks as ScriptRef[] | null | undefined) ?? scripts.filter((s) => s.kind === "check" && s.shared).map((s) => ({ script_id: s.script_id, params: null }));
       const c: Configuration = { config_id: id("cfg"), name: String(b.name ?? "config"), dataset_id: String(b.dataset_id), slots, checks, created_at: NOW };
       configs.push(c);
       return json(201, c);
@@ -449,34 +482,48 @@ export function createMockFetch(opts: MockOptions) {
       return c ? json(200, c) : err(404, "NOT_FOUND", "configuration not found");
     }
     if (p === "/api/runs" && method === "POST") {
-      const cfg = configs.find((c) => c.config_id === body?.config_id);
-      if (!cfg) return err(404, "NOT_FOUND", "configuration not found");
-      const custom = [...Object.values(cfg.slots).map((s) => s.script_id), ...cfg.checks.map((c) => c.script_id)].some(isCustom);
-      if (custom && !opts.customExecution) {
-        return err(403, "CUSTOM_EXECUTION_DISABLED", "Custom Python execution is disabled on this server (DD_EXECUTION_MODE=builtin-only)", { execution_mode: "builtin-only" });
-      }
+      if (!idemKey) return err(400, "IDEMPOTENCY_KEY_REQUIRED", "Send an Idempotency-Key header (1..128 chars) for this operation");
+      const replay = idem.get(`runs:${idemKey}`);
+      if (replay) return json(202, strip(runs.find((r) => r.run_id === replay)!));
+      const cfg = configs.find((c) => c.config_id === body?.configuration_id);
+      if (!cfg) return err(404, "NOT_FOUND", "configuration not found", { resource: "configuration" });
+      const used = [...Object.values(cfg.slots).map((s) => s!.script_id), ...cfg.checks.map((c) => c.script_id)];
+      if (!custom && used.some(isCustom)) return disabled(used.filter(isCustom));
+      const runId = id("run");
       const run: MockRun = {
-        run_id: id("run"),
-        config_id: cfg.config_id,
-        dataset_id: cfg.dataset_id,
-        data_revision: "rev_mock1",
+        run_id: runId,
         status: "QUEUED",
         stage: null,
+        substep: null,
         processed: null,
         total: APPS.length,
+        config_id: cfg.config_id,
+        dataset_id: cfg.dataset_id,
+        dataset_revision_id: "rev_mock1",
+        initial_check_run_id: "",
+        initial_report_id: "",
+        report_status: "PENDING",
+        checks_completeness: null,
+        error: null,
         created_at: NOW,
-        initial_report_id: null,
+        started_at: null,
+        finished_at: null,
+        links: { self: `/api/runs/${runId}` },
         _ticks: 0,
-        _customProcedure: custom,
+        _checks: cfg.checks,
       };
+      const cr = newCheckRun(run, cfg.checks, true);
+      run.initial_check_run_id = cr.check_run_id;
+      run.initial_report_id = cr.report_id;
       runs.unshift(run);
-      pushEvent(run, "INFO", "Run accepted (MOCK)");
-      return json(202, { run_id: run.run_id, status: "QUEUED", status_url: `/api/runs/${run.run_id}` });
+      idem.set(`runs:${idemKey}`, runId);
+      pushEvent(run, "Run accepted (MOCK)");
+      return json(202, strip(run));
     }
-    if (p === "/api/runs" && method === "GET") return json(200, runs.map(strip));
+    if (p === "/api/runs" && method === "GET") return json(200, { items: runs.map(strip), total: runs.length, limit: 50, offset: 0 });
     if ((m = p.match(/^\/api\/runs\/([^/]+)$/))) {
       const run = runs.find((r) => r.run_id === m![1]);
-      if (!run) return err(404, "NOT_FOUND", "run not found");
+      if (!run) return err(404, "NOT_FOUND", "run not found", { resource: "run" });
       advanceRun(run);
       return json(200, strip(run));
     }
@@ -484,10 +531,11 @@ export function createMockFetch(opts: MockOptions) {
       if (!runs.some((r) => r.run_id === m![1])) return err(404, "NOT_FOUND", "run not found");
       const after = Number(url.searchParams.get("after") ?? 0);
       const items = (events.get(m[1]!) ?? []).filter((e) => e.seq > after);
-      return json(200, { items, last_seq: items.length ? items[items.length - 1]!.seq : after });
+      return json(200, { items, next_after: items.length ? items[items.length - 1]!.seq : after });
     }
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/code\/([^/]+)$/))) {
-      return json(200, { run_id: m[1], stage: m[2], code: `# MOCK code snapshot for stage ${m[2]}\n` });
+      const slot = decodeURIComponent(m[2]!);
+      return json(200, { run_id: m[1], slot, script_id: `scr_builtin_${slot}`, kind: slot, source: "builtin", name: slot, script_revision: 1, code_sha256: "mock", params: {}, code: `# MOCK code snapshot for slot ${slot}\n` });
     }
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/summary$/))) {
       const run = completedRun(m[1]!);
@@ -498,7 +546,7 @@ export function createMockFetch(opts: MockOptions) {
       const segs = Object.values(SEGMENTS);
       return json(200, {
         run_id: run.run_id,
-        data_revision: run.data_revision,
+        dataset_revision_id: run.dataset_revision_id,
         total_apps: APPS.length,
         changed_apps: changed.size,
         decision_changed_apps: segs.filter((s) => Number(s.DECISION_CHANGED) === 1).length,
@@ -506,58 +554,37 @@ export function createMockFetch(opts: MockOptions) {
         change_types: types,
         approval_rate_before: segs.filter((s) => s.DECISION_BEFORE === "APPROVE").length / segs.length,
         approval_rate_after: segs.filter((s) => s.DECISION_AFTER === "APPROVE").length / segs.length,
-        top_paths: [
-          { path: "decision.result.decision", changed_apps: 2 },
-          { path: "score.okb.value", changed_apps: 1 },
-        ],
-        completeness: { pairs_total: APPS.length, pairs_failed: 0 },
+        artifacts: [{ artifact_id: "art_mock1", kind: "comparison", rows: COMPARISON.length, bytes: 1234, sha256: "mock", created_at: NOW, download: `/api/runs/${run.run_id}/artifacts/art_mock1` }],
       });
+    }
+    if ((m = p.match(/^\/api\/runs\/([^/]+)\/pivot-facts$/))) {
+      const run = completedRun(m[1]!);
+      if (run instanceof Response) return run;
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      const limit = Number(url.searchParams.get("limit") ?? 1000);
+      const items = BASE_FACTS.slice(offset, offset + limit);
+      return json(200, { run_id: run.run_id, items, limit, offset, next_offset: items.length === limit ? offset + limit : null });
+    }
+    if ((m = p.match(/^\/api\/runs\/([^/]+)\/pivot-facts\/applications$/)) && method === "POST") {
+      const run = completedRun(m[1]!);
+      if (run instanceof Response) return run;
+      const group = (body?.group as Record<string, unknown>) ?? {};
+      if (group.SOURCE !== "BEFORE" && group.SOURCE !== "AFTER") return err(422, "PIVOT_FILTER_INVALID", "Pivot drill-down requires SOURCE BEFORE/AFTER");
+      if (Object.keys(group).some((k) => !(FACT_DIMS as readonly string[]).includes(k))) return err(422, "PIVOT_FILTER_INVALID", "Unknown pivot dimension");
+      const limit = Number(body?.limit ?? 200);
+      const items = [...matchFacts(group)].sort().slice(0, limit);
+      return json(200, { run_id: run.run_id, items, limit, total: null, total_note: "D4 port returns a limited page only; full distinct total is not provided yet" });
     }
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/pivot$/)) && method === "POST") {
       const run = completedRun(m[1]!);
       if (run instanceof Response) return run;
-      const b = (body ?? {}) as { rows?: string[]; cols?: string[]; filters?: Array<{ dim: string; op: string; values: unknown[] }> };
-      const rows = b.rows ?? [];
-      const cols = b.cols ?? [];
-      for (const d of [...rows, ...cols, ...(b.filters ?? []).map((f) => f.dim)]) {
-        if (!PIVOT_DIMS.includes(d)) return err(422, "PIVOT_DIMENSION_INVALID", `Unknown dimension ${d}`, { allowed: PIVOT_DIMS });
-      }
-      const base: Record<string, unknown> = {};
-      for (const f of b.filters ?? []) base[f.dim] = f.values;
-      const facts = FACTS.filter((f) => Object.entries(base).every(([k, v]) => (v as unknown[]).map(String).includes(String(f.dims[k]))));
-      const keyOf = (f: Fact, dims: string[]) => dims.map((d) => f.dims[d] ?? null);
-      const uniq = (dims: string[]) => {
-        const seen = new Map<string, Array<string | number | null>>();
-        facts.forEach((f) => seen.set(JSON.stringify(keyOf(f, dims)), keyOf(f, dims)));
-        return [...seen.values()].sort((a, c) => JSON.stringify(a).localeCompare(JSON.stringify(c)));
-      };
-      const zip = (dims: string[], vals: unknown[]) => Object.fromEntries(dims.map((d, i) => [d, vals[i]]));
-      const cell = (match: Record<string, unknown>) => {
-        const full = { ...base, ...match };
-        return { count: matchFacts(full).size, group: encodeGroup({ run: run.run_id, match: full }) };
-      };
-      const rowKeys = uniq(rows);
-      const colKeys = uniq(cols);
-      const cells = [];
-      for (const rk of rowKeys)
-        for (const ck of colKeys) {
-          const c = cell({ ...zip(rows, rk), ...zip(cols, ck) });
-          if (c.count > 0) cells.push({ row: rk, col: ck, ...c });
-        }
-      return json(200, {
-        run_id: run.run_id,
-        data_revision: run.data_revision,
-        rows,
-        cols,
-        cells,
-        row_totals: rowKeys.map((k) => ({ key: k, ...cell(zip(rows, k)) })),
-        col_totals: colKeys.map((k) => ({ key: k, ...cell(zip(cols, k)) })),
-        grand_total: cell({}),
-      });
+      if (!opts.serverPivot) return err(501, "ANALYTICS_UNAVAILABLE", "Server-side pivot rollup is not implemented in the pinned D4 core; use /pivot-facts and /pivot-facts/applications");
+      return serverPivot(run, body ?? {});
     }
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/groups\/([^/]+)\/applications$/))) {
       const run = completedRun(m[1]!);
       if (run instanceof Response) return run;
+      if (!opts.serverPivot) return err(501, "ANALYTICS_UNAVAILABLE", "Opaque group locators are not implemented in the pinned D4 core");
       let g;
       try {
         g = decodeGroup(decodeURIComponent(m[2]!));
@@ -574,33 +601,44 @@ export function createMockFetch(opts: MockOptions) {
       const run = completedRun(m[1]!);
       if (run instanceof Response) return run;
       const app = decodeURIComponent(m[2]!);
-      if (!SEGMENTS[app]) return err(404, "NOT_FOUND", "application not found");
-      return json(200, { run_id: run.run_id, app_id: app, segment: SEGMENTS[app], comparison: COMPARISON.filter((r) => r.APP_ID === app) });
+      if (!SEGMENTS[app]) return err(404, "NOT_FOUND", "application not found", { resource: "application" });
+      return json(200, { run_id: run.run_id, segment: SEGMENTS[app], comparison: COMPARISON.filter((r) => r.APP_ID === app) });
     }
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/reports$/))) {
-      if (!runs.some((r) => r.run_id === m![1])) return err(404, "NOT_FOUND", "run not found");
-      return json(200, reports.filter((r) => r.run_id === m![1]));
+      const run = runs.find((r) => r.run_id === m![1]);
+      if (!run) return err(404, "NOT_FOUND", "run not found");
+      return json(200, { run_id: run.run_id, initial_report_id: run.initial_report_id, items: reports.filter((r) => r.run_id === run.run_id) });
     }
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/check-runs$/)) && method === "POST") {
+      if (!idemKey) return err(400, "IDEMPOTENCY_KEY_REQUIRED", "Send an Idempotency-Key header");
+      const replay = idem.get(`cr:${idemKey}`);
+      if (replay) return json(202, stripCr(checkRuns.find((c) => c.check_run_id === replay)!));
       const run = completedRun(m[1]!);
       if (run instanceof Response) return run;
-      const checks = ((body?.checks as ScriptRef[]) ?? []).filter((c) => scripts.some((s) => s.script_id === c.script_id && s.kind === "check"));
-      if (!checks.length) return err(422, "VALIDATION_ERROR", "No checks selected");
-      if (checks.some((c) => isCustom(c.script_id)) && !opts.customExecution) {
-        return err(403, "CUSTOM_EXECUTION_DISABLED", "Custom Python execution is disabled on this server (DD_EXECUTION_MODE=builtin-only)", { execution_mode: "builtin-only" });
+      const refs = (body?.checks as ScriptRef[]) ?? [];
+      for (const r of refs) {
+        const s = scriptById(r.script_id);
+        if (!s) return err(404, "NOT_FOUND", "script not found", { resource: "script", id: r.script_id });
+        if (s.kind !== "check") return err(422, "SCRIPT_KIND_MISMATCH", "Selected script is not a check", { script_id: r.script_id });
       }
-      const crId = id("chk");
-      const rep = makeReport(run.run_id, crId, false, checks);
-      checkRuns.push({ check_run_id: crId, run_id: run.run_id, report_id: rep.report_id, checks, status: "QUEUED", _ticks: 0, created_at: NOW });
-      return json(202, { check_run_id: crId, report_id: rep.report_id, status: "QUEUED", status_url: `/api/check-runs/${crId}` });
+      if (new Set(refs.map((r) => r.script_id)).size !== refs.length) return err(422, "DUPLICATE_CHECK", "The same check script is selected twice");
+      const customIds = refs.map((r) => r.script_id).filter(isCustom);
+      if (!custom && customIds.length) return disabled(customIds);
+      const cr = newCheckRun(run, refs, false);
+      idem.set(`cr:${idemKey}`, cr.check_run_id);
+      return json(202, stripCr(cr));
     }
     if ((m = p.match(/^\/api\/check-runs\/([^/]+)$/))) {
       const cr = checkRuns.find((c) => c.check_run_id === m![1]);
       if (!cr) return err(404, "NOT_FOUND", "check run not found");
-      advanceCheckRun(cr);
-      const { _ticks: _t, ...rest } = cr;
-      void _t;
-      return json(200, { ...rest, data_revision: "rev_mock1" });
+      if (!cr.initial && cr.status !== "COMPLETED") {
+        cr._ticks++;
+        if (cr.status === "QUEUED") {
+          cr.status = "RUNNING";
+          cr.started_at = NOW;
+        } else finishCheckRun(cr);
+      }
+      return json(200, stripCr(cr));
     }
     if ((m = p.match(/^\/api\/reports\/([^/]+)$/))) {
       const r = reports.find((x) => x.report_id === m![1]);
@@ -609,24 +647,60 @@ export function createMockFetch(opts: MockOptions) {
     if ((m = p.match(/^\/api\/reports\/([^/]+)\/checks$/))) {
       const r = reports.find((x) => x.report_id === m![1]);
       if (!r) return err(404, "NOT_FOUND", "report not found");
-      if (r.status !== "READY") return err(409, "NOT_READY", "Report is not ready", { status: r.status });
-      return json(200, { report_id: r.report_id, run_id: r.run_id, check_run_id: r.check_run_id, status: r.status, executions: reportExecutions.get(r.report_id) ?? [] });
+      if (r.status !== "PUBLISHED") return err(409, "NOT_READY", "Report is not published", { report_id: r.report_id, status: r.status });
+      return json(200, docs.get(r.report_id));
     }
-    return err(404, "NOT_FOUND", "Route not found (mock)");
+    return err(404, "NOT_FOUND", "Route not found");
   }
 
-  function strip(run: MockRun): Run {
-    const { _ticks: _a, _customProcedure: _b, ...rest } = run;
-    void _a;
-    void _b;
-    return rest;
+  function serverPivot(run: MockRun, b: Json): Response {
+    const rows = (b.rows as string[]) ?? [];
+    const cols = (b.cols as string[]) ?? [];
+    const filters = (b.filters as Array<{ dim: string; values: unknown[] }>) ?? [];
+    for (const d of [...rows, ...cols, ...filters.map((f) => f.dim)]) {
+      if (!(FACT_DIMS as readonly string[]).includes(d)) return err(422, "PIVOT_DIMENSION_INVALID", `Unknown dimension ${d}`, { allowed: FACT_DIMS });
+    }
+    const base: Record<string, unknown> = Object.fromEntries(filters.map((f) => [f.dim, f.values]));
+    const facts = FACTS.filter((f) => Object.entries(base).every(([k, v]) => (v as unknown[]).map(String).includes(String(f.dims[k as keyof FactDims]))));
+    const keyOf = (f: Fact, dims: string[]) => dims.map((d) => f.dims[d as keyof FactDims] ?? null);
+    const uniq = (dims: string[]) => {
+      const seen = new Map<string, Array<string | number | null>>();
+      facts.forEach((f) => seen.set(JSON.stringify(keyOf(f, dims)), keyOf(f, dims)));
+      return [...seen.values()].sort((a, c) => JSON.stringify(a).localeCompare(JSON.stringify(c)));
+    };
+    const zip = (dims: string[], vals: unknown[]) => Object.fromEntries(dims.map((d, i) => [d, vals[i]]));
+    const cell = (match: Record<string, unknown>) => {
+      const full = { ...base, ...match };
+      return { count: matchFacts(full).size, group: encodeGroup({ run: run.run_id, match: full }) };
+    };
+    const rowKeys = uniq(rows);
+    const colKeys = uniq(cols);
+    const cells = [];
+    for (const rk of rowKeys)
+      for (const ck of colKeys) {
+        const c = cell({ ...zip(rows, rk), ...zip(cols, ck) });
+        if (c.count > 0) cells.push({ row: rk, col: ck, ...c });
+      }
+    return json(200, {
+      run_id: run.run_id,
+      rows,
+      cols,
+      cells,
+      row_totals: rowKeys.map((k) => ({ key: k, ...cell(zip(rows, k)) })),
+      col_totals: colKeys.map((k) => ({ key: k, ...cell(zip(cols, k)) })),
+      grand_total: cell({}),
+    });
   }
 
   return async function mockFetch(input: string, init?: RequestInit): Promise<Response> {
     const url = new URL(input, "http://mock.local");
     const method = (init?.method ?? "GET").toUpperCase();
-    const body = init?.body ? (JSON.parse(String(init.body)) as Json) : undefined;
+    const headers = new Headers(init?.headers);
+    let body: Json | undefined;
+    let form: FormData | undefined;
+    if (init?.body instanceof FormData) form = init.body;
+    else if (init?.body) body = JSON.parse(String(init.body)) as Json;
     await new Promise((r) => setTimeout(r, 0));
-    return handle(method, url, body);
+    return handle(method, url, body, form, headers);
   };
 }

@@ -1,11 +1,9 @@
 // Wire DTOs for the D2 backend API.
 //
-// Sources (in priority order):
-//  1. backend-night FastAPI code (feat/backend-night) — registry views for
-//     datasets / scripts / script-kinds / configurations, error envelope.
-//  2. docs/contracts/api.md + execution.md (docs SHA 3731ae3) — runs, events,
-//     reports, check runs, pivot, drill-down. These are the agreed semantics,
-//     wire names must be re-checked against the exported OpenAPI.
+// Source of truth: backend-night Pydantic models (dd_backend/models.py on
+// feat/backend-night, read 2026-11-07). docs/contracts/api.md (3731ae3) gives
+// semantics only. Server pivot rollup / group locators follow docs because the
+// backend answers 501 ANALYTICS_UNAVAILABLE for them until D4 implements them.
 // Divergences are logged in night-ui.log.md / UI_RESULT.md.
 
 export type Iso = string;
@@ -75,18 +73,29 @@ export interface ScriptKind {
   output_columns: string[];
   template: string;
   example: string;
+  sources?: string[];
+  /** false in the safe builtin-only server mode. */
+  custom_execution_enabled?: boolean;
 }
 
+/** POST /api/scripts (workspace editor text). */
 export interface CreateScriptRequest {
   kind: ScriptKindName;
-  source: "workspace" | "file";
   name: string;
   code: string;
-  filename?: string;
+  params?: Record<string, unknown>;
+}
+
+/** POST /api/scripts/upload (multipart, source=file). */
+export interface UploadScriptRequest {
+  kind: ScriptKindName;
+  name: string;
+  file: File;
   params?: Record<string, unknown>;
 }
 
 export interface ScriptRef {
+  /** Omit in a slot to use the built-in procedure. */
   script_id: string;
   params?: Record<string, unknown> | null;
 }
@@ -95,7 +104,7 @@ export interface Configuration {
   config_id: string;
   name: string;
   dataset_id: string;
-  slots: Record<ProcedureSlot, ScriptRef>;
+  slots: Partial<Record<ProcedureSlot, ScriptRef>>;
   checks: ScriptRef[];
   created_at: Iso;
 }
@@ -120,68 +129,85 @@ export const RUN_STAGES = [
 ] as const;
 export type RunStage = (typeof RUN_STAGES)[number];
 
+export interface RunError {
+  code: string;
+  message: string | null;
+}
+
 export interface Run {
   run_id: string;
-  config_id: string;
-  dataset_id?: string;
-  data_revision?: string | null;
   status: RunStatus;
-  stage: RunStage | string | null;
-  processed?: number | null;
-  /** May be absent: unknown total ⇒ indeterminate progress, never a made-up percent. */
-  total?: number | null;
+  stage: RunStage | null;
+  substep?: string | null;
+  processed: number | null;
+  /** May be null: unknown total ⇒ indeterminate progress, never a made-up percent. */
+  total: number | null;
+  config_id: string;
+  dataset_id: string;
+  dataset_revision_id: string;
+  initial_check_run_id: string;
+  initial_report_id: string;
+  report_status: ReportStatus | null;
+  checks_completeness: Completeness | null;
+  error: RunError | null;
   created_at: Iso;
-  started_at?: Iso | null;
-  finished_at?: Iso | null;
-  initial_report_id?: string | null;
-  completeness?: Record<string, unknown> | null;
-  diagnostics?: Array<Record<string, unknown>> | null;
-  error?: ErrorEnvelope | null;
+  started_at: Iso | null;
+  finished_at: Iso | null;
+  links: Record<string, string>;
 }
 
 export interface CreateRunRequest {
-  config_id: string;
-  idempotency_key?: string;
-}
-
-export interface Accepted {
-  run_id?: string;
-  check_run_id?: string;
-  report_id?: string;
-  status: string;
-  status_url?: string;
+  configuration_id: string;
 }
 
 export interface RunEvent {
   seq: number;
-  run_id: string;
+  ts: Iso;
+  check_run_id: string | null;
   stage: string | null;
+  substep: string | null;
   level: "INFO" | "WARNING" | "ERROR" | string;
   message: string;
-  processed?: number | null;
-  total?: number | null;
-  ts: Iso;
-  code_ref?: string | null;
+  processed: number | null;
+  total: number | null;
+  /** "<slot>@<sha12>" — slot for GET /runs/{id}/code/{slot}. */
+  code_ref: string | null;
 }
 
 export interface EventsPage {
   items: RunEvent[];
-  /** Highest seq returned; pass back as ?after=. */
-  last_seq?: number;
+  next_after: number;
 }
 
 export interface CodeSnapshot {
   run_id: string;
-  stage: string;
-  script_id?: string;
-  code_sha256?: string;
+  slot: string;
+  script_id: string;
+  kind: string;
+  source: string;
+  name: string;
+  script_revision: number;
+  code_sha256: string;
+  params: Record<string, unknown>;
   code: string;
+  check_run_id?: string | null;
 }
 
 // ---------------------------------------------------------------- reporting (D4)
+export interface Artifact {
+  artifact_id: string;
+  kind: string;
+  rows: number | null;
+  bytes: number;
+  sha256: string;
+  created_at: Iso;
+  download: string;
+}
+
+/** decision_diff.reporting.summarize() output + run identity + artifacts. */
 export interface Summary {
   run_id: string;
-  data_revision?: string | null;
+  dataset_revision_id?: string;
   total_apps: number;
   changed_apps: number;
   decision_changed_apps: number;
@@ -190,8 +216,8 @@ export interface Summary {
   approval_rate_before: number;
   approval_rate_after: number;
   top_paths?: Array<{ path: string; changed_apps: number }>;
-  completeness?: Record<string, unknown> | null;
-  diagnostics?: Array<Record<string, unknown>> | null;
+  artifacts?: Artifact[];
+  [k: string]: unknown;
 }
 
 export const PIVOT_DIMENSIONS = [
@@ -204,8 +230,6 @@ export const PIVOT_DIMENSIONS = [
   "VALUE_ADJUSTED",
   "SOURCE",
   "DIFF_FLAG",
-  "CHANGE_TYPE",
-  "DECISION_CHANGED",
 ] as const;
 export type PivotDimension = (typeof PIVOT_DIMENSIONS)[number] | string;
 
@@ -215,12 +239,12 @@ export interface PivotFilter {
   values: Array<string | number>;
 }
 
+/** Server rollup (docs v0). Backend currently answers 501 ANALYTICS_UNAVAILABLE. */
 export interface PivotRequest {
   rows: PivotDimension[];
   cols: PivotDimension[];
   filters: PivotFilter[];
   report_id?: string | null;
-  limit?: number;
 }
 
 export interface PivotCell {
@@ -240,7 +264,6 @@ export interface PivotTotal {
 
 export interface PivotResponse {
   run_id: string;
-  data_revision?: string | null;
   rows: PivotDimension[];
   cols: PivotDimension[];
   cells: PivotCell[];
@@ -250,9 +273,26 @@ export interface PivotResponse {
   truncated?: boolean;
 }
 
-export interface ApplicationsPage extends Page<string> {
+export interface ApplicationsPage {
   run_id: string;
-  group: string;
+  group?: string;
+  items: string[];
+  /** Full distinct total after filters — or null when the backend cannot provide it. */
+  total: number | null;
+  total_note?: string;
+  offset?: number;
+  limit: number;
+}
+
+/** One D4 base pivot fact (DuckDBMart.pivot). CNT must not be summed across groups. */
+export type PivotFact = Record<string, string | number | null> & { CNT: number; SOURCE: "BEFORE" | "AFTER" };
+
+export interface PivotFactsPage {
+  run_id: string;
+  items: PivotFact[];
+  limit: number;
+  offset: number;
+  next_offset: number | null;
 }
 
 export interface ComparisonRow {
@@ -273,7 +313,6 @@ export interface ComparisonRow {
 
 export interface ApplicationDetail {
   run_id: string;
-  app_id: string;
   segment: Record<string, unknown>;
   comparison: ComparisonRow[];
 }
@@ -292,61 +331,79 @@ export interface CheckRow {
   CONFIDENCE: "HIGH" | "LOW";
 }
 
-/** SUCCESS = check ran; business verdict is in rows. Others = execution error, not FAIL. */
+/** SUCCEEDED = check ran (verdict in rows). Everything else = execution error, never a FAIL. */
 export type ExecutionStatus =
-  | "SUCCESS"
+  | "SUCCEEDED"
   | "ERROR"
   | "TIMEOUT"
   | "INVALID_OUTPUT"
   | "IMPORT_ERROR"
-  | "DUPLICATE_ID"
-  | "SKIPPED"
-  | string;
+  | "CONTRACT_ERROR"
+  | "DUPLICATE_ID";
 
 export interface CheckExecution {
   execution_id: string;
+  slot: string;
+  script_id: string;
   check_id: string | null;
-  script_id?: string | null;
-  label?: string | null;
-  execution_status: ExecutionStatus;
+  label: string | null;
   params: Record<string, unknown>;
-  diagnostics?: { error_type?: string; message?: string; [k: string]: unknown } | null;
-  duration_s?: number | null;
-  rows: CheckRow[];
+  execution_status: ExecutionStatus;
+  rows_count: number;
+  diagnostics?: Array<Record<string, unknown>>;
+  duration_seconds: number | null;
 }
 
-export type ReportStatus = "PENDING" | "RUNNING" | "READY" | "FAILED" | string;
+export type ReportStatus = "PENDING" | "PUBLISHED" | "FAILED";
+export type Completeness = "COMPLETE" | "INCOMPLETE" | "NO_CHECKS_SELECTED";
 
 export interface Report {
   report_id: string;
   run_id: string;
-  data_revision?: string | null;
+  dataset_revision_id: string;
   check_run_id: string;
   status: ReportStatus;
+  completeness: Completeness | null;
+  sha256: string | null;
   created_at: Iso;
-  is_initial?: boolean;
-  completeness?: Record<string, unknown> | null;
+  published_at: Iso | null;
+  links: Record<string, string>;
 }
 
+export interface ReportList {
+  run_id: string;
+  initial_report_id: string;
+  items: Report[];
+}
+
+/** Published report document (D4 format). Rows of all executions are flat in `checks`, in execution order. */
 export interface ReportChecks {
   report_id: string;
   run_id: string;
   check_run_id: string;
-  status: ReportStatus;
+  dataset_revision_id: string;
+  completeness: Completeness | string;
+  summary: Record<string, unknown>;
+  checks: CheckRow[];
+  diagnostics: Array<{ check?: string; error_type?: string; message?: string; [k: string]: unknown }>;
+  timings_seconds: Record<string, number | null>;
   executions: CheckExecution[];
 }
-
-export type CheckRunStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | string;
 
 export interface CheckRun {
   check_run_id: string;
   run_id: string;
-  data_revision?: string | null;
+  dataset_revision_id: string;
   report_id: string;
-  status: CheckRunStatus;
-  checks: ScriptRef[];
+  initial: boolean;
+  status: RunStatus;
+  selected: Array<Record<string, unknown>>;
+  executions: CheckExecution[];
+  error: RunError | null;
   created_at: Iso;
-  error?: ErrorEnvelope | null;
+  started_at: Iso | null;
+  finished_at: Iso | null;
+  links: Record<string, string>;
 }
 
 export interface CreateCheckRunRequest {
@@ -356,5 +413,7 @@ export interface CreateCheckRunRequest {
 export interface Readiness {
   ready: boolean;
   execution_mode?: string;
+  warnings?: string[];
+  checks?: Array<Record<string, unknown>>;
   [k: string]: unknown;
 }

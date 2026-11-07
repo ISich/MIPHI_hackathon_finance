@@ -20,7 +20,7 @@ export function GroupApplications({ runId, group, back }: { runId: string; group
         {(p) => (
           <div>
             <p data-testid="group-total">
-              Всего различных заявок: <strong>{p.total}</strong>
+              Всего различных заявок: <strong>{p.total ?? "не сообщено backend"}</strong>
               {p.items.length ? `; показаны ${offset + 1}–${offset + p.items.length}` : ""}
             </p>
             {p.items.length === 0 ? <p className="muted">На этой странице заявок нет.</p> : null}
@@ -35,10 +35,67 @@ export function GroupApplications({ runId, group, back }: { runId: string; group
               <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
                 ← Назад
               </button>
-              <button type="button" disabled={offset + PAGE_SIZE >= p.total} onClick={() => setOffset(offset + PAGE_SIZE)}>
+              <button
+                type="button"
+                disabled={p.total === null ? p.items.length < PAGE_SIZE : offset + PAGE_SIZE >= p.total}
+                onClick={() => setOffset(offset + PAGE_SIZE)}
+              >
                 Далее →
               </button>
             </div>
+          </div>
+        )}
+      </Async>
+    </section>
+  );
+}
+
+export const MAX_FACT_APPS = 10000;
+
+/** Drill-down from a D4 base fact (fallback mode): POST /pivot-facts/applications. */
+export function FactApplications({ runId, group, cnt }: { runId: string; group: string; cnt: number | null }) {
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const v: unknown = JSON.parse(group);
+    if (v && typeof v === "object" && !Array.isArray(v)) parsed = v as Record<string, unknown>;
+  } catch {
+    parsed = null;
+  }
+  const limit = Math.min(MAX_FACT_APPS, Math.max(1, cnt ?? 200));
+  const page = useApi(parsed ? `fact-apps:${runId}:${group}:${limit}` : null, () => api.pivotFactApplications(runId, parsed!, limit));
+  return (
+    <section>
+      <p>
+        <a href={href("runs", runId, "pivot")}>← К базовым фактам</a>
+      </p>
+      <h1>Заявки факта</h1>
+      {parsed ? (
+        <dl className="kv">
+          {Object.entries(parsed).map(([k, v]) => (
+            <div key={k} className="kv-pair">
+              <dt>{k}</dt>
+              <dd>{v === "" ? "∅ (пусто)" : String(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <div className="state state-error">Некорректная ссылка на группу.</div>
+      )}
+      <Async value={page} what="Загрузка заявок">
+        {(p) => (
+          <div>
+            <p data-testid="group-total">
+              Получено заявок: <strong>{p.items.length}</strong>
+              {cnt !== null ? `; CNT факта: ${cnt}` : ""}
+              {p.total === null ? <span className="muted"> — полный distinct total backend не сообщает{p.total_note ? ` (${p.total_note})` : ""}</span> : `; всего: ${p.total}`}
+            </p>
+            <ul className="app-list">
+              {p.items.map((app) => (
+                <li key={app}>
+                  <a href={href("runs", runId, "apps", app)}>{app}</a>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </Async>
@@ -63,6 +120,7 @@ export function ApplicationView({ runId, appId, group, back }: { runId: string; 
       </h1>
       <Async value={app} what="Загрузка заявки">
         {(d) => {
+          if (d.run_id !== runId) return null;
           const rows = onlyDiff ? d.comparison.filter((r) => Number(r.DIFF_FLAG) === 1) : d.comparison;
           return (
             <div>
