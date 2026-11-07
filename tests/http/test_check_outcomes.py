@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 
-from support.http_api import assert_envelope
 
 ROW = ('{"LABEL": "qa", "SOURCE": "AFTER", "ARGUMENT": "%s", "CNT": 1, "TOTAL": mart.total_apps(), '
        '"METRIC": 0.5, "APP_IDS": [], "RESULT": "%s", "CONFIDENCE": "HIGH"}')
@@ -49,16 +48,7 @@ def outcomes(api_a, completed_example_run, execution_mode):
     return {"resp": r, "mode": execution_mode, "ids": created, "run_id": run_id}
 
 
-def test_custom_checks_refused_explicitly_when_execution_disabled(api_a, outcomes):
-    if outcomes["mode"] == "trusted-local":
-        pytest.skip("server runs trusted-local; refusal path not applicable")
-    r = outcomes["resp"]
-    if r.status_code == 202:
-        cr = api_a.wait(f"/api/check-runs/{r.json()['check_run_id']}")
-        assert cr["status"] == "FAILED" or all(e["execution_status"] != "SUCCEEDED" for e in cr["executions"]), cr
-    else:
-        body = assert_envelope(r, (403, 409, 422))
-        assert "execution" in (body["code"] + body["message"]).lower()
+# Refusal in builtin-only mode: see test_execution_policy.py (canary-based, CR #3).
 
 
 @pytest.fixture(scope="module")
