@@ -71,4 +71,26 @@ describe("check-openapi", () => {
     expect(r.ok).toBe(false);
     expect(r.out).toMatch(/EventPage\.next_after/);
   });
+
+  it("fails when a request field changes type (RunCreate.configuration_id → integer)", () => {
+    const s = load();
+    s.components.schemas.RunCreate.properties.configuration_id = { type: "integer" };
+    const r = run(s);
+    expect(r.ok).toBe(false);
+    expect(r.out).toMatch(/RunCreate\.configuration_id/);
+  });
+
+  it("fails when an array field's items bind to another schema (RunPage.items → Report)", () => {
+    const s = load();
+    s.components.schemas.RunPage.properties.items = { type: "array", items: { $ref: "#/components/schemas/Report" } };
+    const r = run(s);
+    expect(r.ok).toBe(false);
+    expect(r.out).toMatch(/RunPage\.items/);
+  });
+
+  it("fails when a nested request array binds to another schema (CheckRunCreate.checks)", () => {
+    const s = load();
+    s.components.schemas.CheckRunCreate.properties.checks = { type: "array", items: { $ref: "#/components/schemas/SlotRef" } };
+    expect(run(s).ok).toBe(false);
+  });
 });

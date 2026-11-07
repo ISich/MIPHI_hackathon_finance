@@ -49,30 +49,34 @@ const ROUTES = [
   ["get", "/api/reports/{report_id}/checks.html", null],
 ];
 
-// Request bodies the UI sends: schema binding + the fields the client puts in the body.
+// Request bodies the UI sends: schema binding + the fields the client puts in the
+// body with the JSON type of the value it sends (same notation as FIELDS).
 const REQUESTS = {
-  "post /api/runs": { schema: "RunCreate", sends: ["configuration_id"] },
-  "post /api/configurations": { schema: "ConfigurationCreate", sends: ["name", "dataset_id", "slots", "checks"] },
-  "post /api/scripts": { schema: "ScriptCreate", sends: ["kind", "name", "code", "params"] },
-  "post /api/runs/{run_id}/check-runs": { schema: "CheckRunCreate", sends: ["checks"] },
-  "post /api/runs/{run_id}/pivot-facts/applications": { schema: "PivotDrillDown", sends: ["group", "limit"] },
-  "post /api/scripts/upload": { multipart: true, sends: ["kind", "name", "params", "file"] },
+  "post /api/runs": { schema: "RunCreate", sends: "configuration_id:s" },
+  "post /api/configurations": { schema: "ConfigurationCreate", sends: "name:s dataset_id:s slots:o checks:a<CheckRef>" },
+  "post /api/scripts": { schema: "ScriptCreate", sends: "kind:s name:s code:s params:o" },
+  "post /api/runs/{run_id}/check-runs": { schema: "CheckRunCreate", sends: "checks:a<CheckRef>" },
+  "post /api/runs/{run_id}/pivot-facts/applications": { schema: "PivotDrillDown", sends: "group:o limit:i" },
+  "post /api/scripts/upload": { multipart: true, sends: "kind:s name:s params:s file:s" },
 };
+// Nested request objects inside the bodies above.
+const REQUEST_ITEMS = { CheckRef: "script_id:s params:o" };
 
 // Fields the UI reads: type letter + "?" when the UI handles null/absence.
-// s=string i=integer n=number b=boolean a=array o=object
+// s=string i=integer n=number b=boolean a=array o=object; a<Name> = array of $ref Name
 const FIELDS = {
+  CheckRef: "script_id:s",
   Run: "run_id:s status:s stage:s? substep:s? processed:i? total:i? config_id:s dataset_revision_id:s initial_report_id:s report_status:s? checks_completeness:s? error:o? created_at:s",
-  RunPage: "items:a total:i",
-  EventPage: "items:a next_after:i",
+  RunPage: "items:a<Run> total:i",
+  EventPage: "items:a<Event> next_after:i",
   Event: "seq:i ts:s check_run_id:s? stage:s? substep:s? level:s message:s processed:i? total:i? code_ref:s?",
   CodeSnapshot: "slot:s name:s source:s script_revision:i code_sha256:s params:o code:s",
-  Dataset: "dataset_id:s name:s revisions:a",
+  Dataset: "dataset_id:s name:s revisions:a<DatasetRevision>",
   DatasetRevision: "revision_id:s pairs:i",
   Script: "script_id:s kind:s source:s name:s revision:i code_sha256:s shared:b",
   ScriptKind: "kind:s entrypoint:s output_columns:a template:s example:s custom_execution_enabled:b",
   Configuration: "config_id:s name:s dataset_id:s checks:a",
-  ReportList: "initial_report_id:s items:a",
+  ReportList: "initial_report_id:s items:a<Report>",
   Report: "report_id:s run_id:s status:s completeness:s?",
   CheckRun: "check_run_id:s run_id:s report_id:s status:s error:o?",
   ReportChecks: "report_id:s run_id:s check_run_id:s dataset_revision_id:s completeness:s checks:a diagnostics:a executions:a",
@@ -99,6 +103,42 @@ function typeOf(s) {
   if (Array.isArray(s.type)) return { types: new Set(s.type.filter((t) => t !== "null")), nullable: s.type.includes("null") };
   if (s.type) return { types: new Set([s.type]), nullable: !!s.nullable };
   return { types: new Set(["any"]), nullable: true };
+}
+
+/** $ref name of array items, looking through anyOf/oneOf alternatives. */
+function itemRef(s) {
+  if (!s) return null;
+  if (s.type === "array") return refName(s.items);
+  for (const alt of s.anyOf ?? s.oneOf ?? []) {
+    const r = itemRef(alt);
+    if (r) return r;
+  }
+  return null;
+}
+
+/** Parse "name:t" items; t = s|i|n|b|a|o, optional "<Ref>" for arrays, "?" = nullable/optional for the UI. */
+function parseFields(spec_) {
+  return spec_.split(" ").map((item) => {
+    const [field, t] = item.split(":");
+    const m = t.match(/^([sinbao])(?:<(\w+)>)?(\?)?$/);
+    if (!m) throw new Error(`bad field spec ${item}`);
+    return { field, want: TYPE[m[1]], items: m[2] ?? null, optional: !!m[3] };
+  });
+}
+
+/** Type (+ array item binding) check of one property; returns true if it matched. */
+function checkType(owner, field, prop, want, items) {
+  const got = typeOf(prop);
+  let ok = true;
+  if (!got.types.has(want) && !got.types.has("any") && !(want === "number" && got.types.has("integer"))) {
+    fail(`${owner}.${field}: type ${[...got.types].join("|") || "null"}, UI expects ${want}`);
+    ok = false;
+  }
+  if (items && itemRef(prop) !== items) {
+    fail(`${owner}.${field}: array items bound to ${itemRef(prop) ?? "?"}, UI expects ${items}`);
+    ok = false;
+  }
+  return ok;
 }
 
 function jsonSchemaOf(op, kind) {
@@ -147,9 +187,27 @@ for (const [key, req] of Object.entries(REQUESTS)) {
     }
     schema = schemas[name];
   }
+  const owner = req.schema ?? key;
   const props = schema?.properties ?? {};
-  for (const f of req.sends) if (!props[f]) fail(`${req.schema ?? key}.${f}: UI sends it but the schema has no such field`);
-  for (const f of schema?.required ?? []) if (!req.sends.includes(f)) fail(`${req.schema ?? key}.${f}: required by backend but not sent by the UI`);
+  const sends = parseFields(req.sends);
+  for (const { field, want, items } of sends) {
+    if (!props[field]) fail(`${owner}.${field}: UI sends it but the schema has no such field`);
+    else checkType(owner, field, props[field], want, items);
+  }
+  for (const f of schema?.required ?? []) if (!sends.some((x) => x.field === f)) fail(`${owner}.${f}: required by backend but not sent by the UI`);
+}
+for (const [name, spec_] of Object.entries(REQUEST_ITEMS)) {
+  const sch = schemas[name];
+  if (!sch) {
+    fail(`schema missing: ${name}`);
+    continue;
+  }
+  const sends = parseFields(spec_);
+  for (const { field, want, items } of sends) {
+    if (!sch.properties?.[field]) fail(`${name}.${field}: UI sends it but the schema has no such field`);
+    else checkType(name, field, sch.properties[field], want, items);
+  }
+  for (const f of sch.required ?? []) if (!sends.some((x) => x.field === f)) fail(`${name}.${f}: required by backend but not sent by the UI`);
 }
 
 // fields the UI reads
@@ -160,18 +218,14 @@ for (const [name, spec_] of Object.entries(FIELDS)) {
     continue;
   }
   const required = new Set(sch.required ?? []);
-  for (const item of spec_.split(" ")) {
-    const [field, t] = item.split(":");
-    const optional = t.endsWith("?");
-    const want = TYPE[t[0]];
+  for (const { field, want, items, optional } of parseFields(spec_)) {
     const prop = sch.properties?.[field];
     if (!prop) {
       fail(`${name}.${field}: not in schema`);
       continue;
     }
+    checkType(name, field, prop, want, items);
     const got = typeOf(prop);
-    if (!got.types.has(want) && !got.types.has("any") && !(want === "number" && got.types.has("integer")))
-      fail(`${name}.${field}: type ${[...got.types].join("|") || "null"}, UI expects ${want}`);
     if (!optional && (got.nullable || !required.has(field)))
       fail(`${name}.${field}: UI treats it as always present and non-null, schema has ${got.nullable ? "nullable" : ""}${!required.has(field) ? " optional" : ""}`);
   }
