@@ -125,6 +125,11 @@ def report_problems(body, run, expected_check_ids=ORGANIZER_CHECK_IDS) -> list[s
             problems.append(f"{key}={body.get(key)!r} != {want!r}")
     if body.get("completeness") != "COMPLETE":
         problems.append(f"completeness={body.get('completeness')!r}")
+    for key, kind in (("summary", dict), ("diagnostics", list), ("timings_seconds", dict)):
+        if not isinstance(body.get(key), kind):
+            problems.append(f"{key} missing or not a {kind.__name__}")
+    if isinstance(body.get("diagnostics"), list) and body["diagnostics"]:
+        problems.append(f"unexpected execution diagnostics {str(body['diagnostics'])[:120]}")
     executions, rows = body.get("executions"), body.get("checks")
     if not isinstance(executions, list) or not isinstance(rows, list):
         return problems + ["executions/checks are not lists"]
