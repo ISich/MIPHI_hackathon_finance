@@ -120,7 +120,7 @@
 .tables-empty h3 { font-size: .9rem; margin: 16px 0 8px; color: var(--fg); }
 .tables-empty p { font-size: .75rem; }
 .table-import-dialog { width: 640px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 48px); overflow: auto; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); box-shadow: 0 24px 80px rgb(0 0 0 / 20%); }
-.table-import-dialog::backdrop { background: rgb(10 20 18 / 45%); backdrop-filter: blur(3px); }
+.table-import-dialog::backdrop { background: rgb(24 18 14 / 45%); backdrop-filter: blur(3px); }
 .table-import-heading { padding: 24px; display: flex; justify-content: space-between; align-items: center; }
 .table-import-heading h2 { margin: 6px 0 0; font-size: 1.1rem; }
 .table-import-heading .eyebrow { font-size: .58rem; }
