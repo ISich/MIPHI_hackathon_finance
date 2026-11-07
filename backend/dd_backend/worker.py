@@ -16,12 +16,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import contextlib
 import resource
 import secrets
 import selectors
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -117,20 +119,47 @@ def kill_marked(mark: str, pgid: int | None = None, wait: float = 3.0) -> int:
 REGISTRATION_RESULT_LIMIT = 1024 * 1024
 
 
-def _read_protocol(path: Path, limit: int) -> tuple[dict | None, bool]:
-    """Bounded read of a child's JSON protocol file: never loads more than ``limit`` bytes."""
+def _read_protocol(path: Path, limit: int) -> tuple[dict | None, str, int]:
+    """Bounded, non-blocking read of a child's JSON protocol file.
+
+    Returns (value, status, size); status: ok | missing | not_regular | too_big | invalid.
+    Never follows a symlink, never blocks on a FIFO, never loads more than ``limit`` bytes.
+    """
     try:
-        with path.open("rb") as f:
-            data = f.read(limit + 1)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except FileNotFoundError:
-        return None, False
-    if len(data) > limit:
-        return None, True
+        return None, "missing", 0
+    except OSError:
+        return None, "not_regular", 0   # e.g. ELOOP for a symlink
     try:
-        value = json.loads(data)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return None, "not_regular", 0
+        if st.st_size > limit:
+            return None, "too_big", st.st_size
+        chunks, read = [], 0
+        while True:
+            chunk = os.read(fd, min(1 << 20, limit + 1 - read))
+            if not chunk:
+                break
+            read += len(chunk)
+            chunks.append(chunk)
+            if read > limit:
+                return None, "too_big", read
+    finally:
+        os.close(fd)
+    try:
+        value = json.loads(b"".join(chunks))
     except ValueError:
-        return None, False
-    return (value if isinstance(value, dict) else None), False
+        return None, "invalid", read
+    return (value, "ok", read) if isinstance(value, dict) else (None, "invalid", read)
+
+
+def _contained(marker: Path) -> bool:
+    """After the supervisor is reaped: verified containment, or it never forked a child (it publishes
+    the ``.started`` handshake before forking)."""
+    started = marker.with_name(marker.name.replace(".contained", ".started"))
+    return marker.exists() or not started.exists()
 
 
 class UncontainedExecution(Exception):
@@ -295,18 +324,28 @@ class Worker:
         False: cannot be verified (fail closed)."""
         mark = job.get("exec_mark")
         if not mark:
-            return True  # never started anything
-        if (self.settings.home / "executions" / f"{mark}.contained").exists():
+            return True  # never launched anything
+        edir = self.settings.home / "executions"
+        if (edir / f"{mark}.contained").exists():
             kill_marked(mark, None, wait=0.5)  # belt and braces
             return True
-        pid, start = job.get("exec_pgid"), job.get("exec_start")
-        if pid:
+        started = edir / f"{mark}.started"
+        if started.exists() or job.get("exec_pgid"):
+            if started.exists():
+                pid_s, start = started.read_text().split()[:2]
+                pid = int(pid_s)
+            else:
+                pid, start = job["exec_pgid"], job.get("exec_start")
             current = _proc_start(pid)
             if current is not None and (start in (None, "unknown") or current == start):
-                return None
-            return False  # supervisor died without verifying containment
-        # supervisor never recorded: it either never started or is identified only by the mark
-        return kill_marked(mark, None) == 0
+                return None  # supervisor alive: it will contain and write the marker
+            return False     # supervisor gone without verified containment
+        # No handshake yet: the supervisor (if any) has not forked a child. Kill it by mark, then make
+        # sure it did not publish a handshake in the meantime.
+        left = kill_marked(mark, None)
+        if left or started.exists():
+            return False
+        return True
 
     def _note_uncontained(self, con, job: dict) -> None:
         msg = ("EXECUTION_UNCONTAINED: processes of the interrupted execution could not be verified as gone; "
@@ -457,20 +496,51 @@ class Worker:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(ev_w,) if on_event else (),
             start_new_session=True, preexec_fn=self._limits(), close_fds=True,
         )
-        os.close(ev_w)
         with self._lock:
             self._child = child
+        try:
+            return self._supervise(child, ev_r, ev_w, marker, mark, job_seq, timeout, log_path, on_event)
+        finally:
+            with self._lock:
+                self._child = None
+
+    def _record_supervisor(self, job_seq: int | None, child: subprocess.Popen) -> None:
         if job_seq is not None:
             with self.db.tx() as con:
                 con.execute("UPDATE jobs SET exec_pgid=?, exec_start=? WHERE job_seq=?",
                             (child.pid, _proc_start(child.pid), job_seq))
+
+    def _supervise(self, child, ev_r, ev_w, marker, mark, job_seq, timeout, log_path, on_event):
+        """Everything after launch. Any exit path stops the execution and verifies containment;
+        if verification fails, UncontainedExecution replaces whatever happened (fail closed)."""
+        holder: dict = {}
+        try:
+            os.close(ev_w)
+            self._record_supervisor(job_seq, child)
+            return self._stream(child, ev_r, timeout, log_path, on_event, marker, mark, holder)
+        except BaseException as exc:
+            self._kill_child()
+            if not holder.get("closed"):
+                for closer in (lambda: holder.get("sel") and holder["sel"].close(),
+                               lambda: holder["ev"].close() if holder.get("ev") else os.close(ev_r),
+                               lambda: child.stdout.close()):
+                    with contextlib.suppress(Exception):
+                        closer()
+            rc = self._reap_supervisor(child)
+            if isinstance(exc, UncontainedExecution) or not _contained(marker):
+                left = kill_marked(mark, None, wait=1.0)
+                raise UncontainedExecution(f"containment of execution {mark[:8]} not verified after "
+                                           f"{type(exc).__name__} (supervisor exit {rc}, {left} marked left)") from exc
+            raise
+
+    def _stream(self, child, ev_r, timeout, log_path, on_event, marker, mark, holder):
         log_budget = self.settings.max_log_bytes
         truncated = False
         deadline = time.monotonic() + timeout
         timed_out = False
-        sel = selectors.DefaultSelector()
+        sel = holder["sel"] = selectors.DefaultSelector()
         sel.register(child.stdout, selectors.EVENT_READ, "log")
-        ev_file = os.fdopen(ev_r, "rb", buffering=0)
+        ev_file = holder["ev"] = os.fdopen(ev_r, "rb", buffering=0)
         sel.register(ev_file, selectors.EVENT_READ, "ev")
         buf = b""
         open_streams = 2
@@ -511,22 +581,14 @@ class Worker:
                                     continue
                                 if on_event is not None and isinstance(payload, dict):
                                     on_event(payload)
-        except BaseException:
-            self._kill_child()  # e.g. LeaseLost from on_event: never leave the execution running
-            sel.close()
-            ev_file.close()
-            child.stdout.close()
-            self._reap_supervisor(child)
-            with self._lock:
-                self._child = None
-            raise
+        finally:
+            pass  # cleanup on errors is done by _supervise (stop + verify containment)
         sel.close()
         ev_file.close()
         child.stdout.close()
+        holder["closed"] = True
         rc = self._reap_supervisor(child)
-        with self._lock:
-            self._child = None
-        if not marker.exists():
+        if not _contained(marker):
             left = kill_marked(mark, None, wait=1.0)
             raise UncontainedExecution(f"containment of execution {mark[:8]} not verified "
                                        f"(supervisor exit {rc}, {left} marked processes left)")
@@ -697,10 +759,12 @@ class Worker:
             if timed_out:
                 ex.update(execution_status="TIMEOUT", diagnostics=[{"error_type": "Timeout", "message": "check import timed out"}])
                 continue
-            reg, too_big = _read_protocol(reg_out, REGISTRATION_RESULT_LIMIT) if rc == 0 else (None, False)
+            reg, pstatus, _ = _read_protocol(reg_out, REGISTRATION_RESULT_LIMIT) if rc == 0 else (None, "exit", 0)
             if reg is None:
-                ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildFailed",
-                                                                  "message": f"registration process exit code {rc}; result ignored"}])
+                ex.update(execution_status="ERROR", diagnostics=[{
+                    "error_type": "ChildFailed" if pstatus == "exit" else "ProtocolFile",
+                    "message": (f"registration process exit code {rc}; result ignored" if pstatus == "exit"
+                                else f"registration result unusable ({pstatus})")}])
                 continue
             if not reg["ok"]:
                 ex.update(execution_status=reg["status"], diagnostics=[{"error_type": reg["error_type"],
@@ -725,21 +789,23 @@ class Worker:
                 ex.update(execution_status="TIMEOUT", diagnostics=[{
                     "error_type": "Timeout", "message": f"check exceeded {settings.check_timeout_seconds}s and was killed"}])
                 continue
-            size = run_out.stat().st_size if run_out.exists() else 0
-            if rc == 0 and size > settings.max_check_result_bytes:
-                ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
-                    "error_type": "ResultTooLarge",
-                    "message": f"check result {size} bytes exceeds DD_MAX_CHECK_RESULT_BYTES; not loaded"}])
-                continue
-            if rc == 0 and report_bytes + size > settings.max_report_bytes:
-                ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
-                    "error_type": "ReportBudgetExceeded",
-                    "message": f"report budget DD_MAX_REPORT_BYTES exhausted ({report_bytes}+{size} bytes); not loaded"}])
-                continue
-            res, _ = _read_protocol(run_out, settings.max_check_result_bytes) if rc == 0 else (None, False)
-            if res is None:
+            if rc != 0:
                 ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildFailed",
                                                                   "message": f"check process exit code {rc}; result ignored"}])
+                continue
+            res, pstatus, size = _read_protocol(run_out, min(settings.max_check_result_bytes,
+                                                             max(0, settings.max_report_bytes - report_bytes)))
+            if pstatus == "too_big":
+                over_budget = size <= settings.max_check_result_bytes
+                ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
+                    "error_type": "ReportBudgetExceeded" if over_budget else "ResultTooLarge",
+                    "message": (f"report budget DD_MAX_REPORT_BYTES exhausted ({report_bytes}+{size} bytes); not loaded"
+                                if over_budget else
+                                f"check result {size} bytes exceeds DD_MAX_CHECK_RESULT_BYTES; not loaded")}])
+                continue
+            if res is None:
+                ex.update(execution_status="INVALID_OUTPUT" if pstatus in ("not_regular", "invalid") else "ERROR",
+                          diagnostics=[{"error_type": "ProtocolFile", "message": f"check result unusable ({pstatus})"}])
                 continue
             report_bytes += size
             ex.update(execution_status=res["status"], rows=res["rows"],

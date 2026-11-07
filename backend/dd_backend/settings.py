@@ -94,7 +94,6 @@ class Settings:
     max_check_result_bytes: int = field(default=16 * 1024 * 1024)
     max_report_bytes: int = field(default=64 * 1024 * 1024)
     allowed_hosts: frozenset = field(default=frozenset())
-    allowed_origins: frozenset = field(default=frozenset())
 
     @property
     def db_path(self) -> Path:
@@ -129,12 +128,13 @@ def load_settings() -> Settings:
     if mode == "trusted-local" and not allowed_hosts <= LOOPBACK_NAMES:
         raise SettingsError("trusted-local execution allows only loopback DD_ALLOWED_HOSTS "
                             f"({sorted(LOOPBACK_NAMES)}), got {sorted(allowed_hosts)}")
+    if os.environ.get("DD_ALLOWED_ORIGINS"):
+        raise SettingsError("DD_ALLOWED_ORIGINS was removed: cross-origin browser access is not supported. "
+                            "Deploy UI and API same-origin (nginx /api -> backend, or a dev proxy keeping Host)")
     ui_base = os.environ.get("DD_REPORT_UI_BASE", "http://127.0.0.1:5173")
-    origins_raw = os.environ.get("DD_ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
-    allowed_origins = frozenset({_origin(o) for o in origins_raw.split(",") if o.strip()} | {_origin(ui_base)})
+    _origin(ui_base)  # validated: only used as the absolute link target inside HTML reports
     return Settings(
         allowed_hosts=allowed_hosts,
-        allowed_origins=allowed_origins,
         max_input_file_bytes=_int("DD_MAX_INPUT_FILE_BYTES", 64 * 1024 * 1024),
         max_check_result_bytes=_int("DD_MAX_CHECK_RESULT_BYTES", 16 * 1024 * 1024),
         max_report_bytes=_int("DD_MAX_REPORT_BYTES", 64 * 1024 * 1024),

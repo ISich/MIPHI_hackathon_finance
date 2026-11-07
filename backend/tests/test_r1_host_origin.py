@@ -21,9 +21,8 @@ def test_cross_origin_state_changing_request_is_rejected(client):
     assert r.status_code == 403 and r.json()["code"] == "ORIGIN_NOT_ALLOWED"
     r = client.post("/api/configurations", json=body, headers={"sec-fetch-site": "cross-site"})
     assert r.status_code == 403
-    # same-origin and the configured UI origin are fine; non-browser clients send no Origin
+    # same-origin is fine; non-browser clients send no Origin (cross-origin, incl. :5173, is covered in test_rr4)
     assert client.post("/api/configurations", json=body, headers={"origin": "http://127.0.0.1"}).status_code == 201
-    assert client.post("/api/configurations", json=body, headers={"origin": "http://127.0.0.1:5173"}).status_code == 201
     assert client.post("/api/configurations", json=body).status_code == 201
 
 

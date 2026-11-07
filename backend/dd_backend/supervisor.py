@@ -82,6 +82,15 @@ def main() -> int:
         signal.signal(sig, request_stop)
     rc: int | None = None
     if os.getppid() == worker_pid:  # worker may have died before PDEATHSIG was armed
+        # Handshake: publish our identity BEFORE any child exists. Recovery treats a present
+        # ".started" without ".contained" as "must be verified" (fail closed), so there is no window
+        # in which an execution runs while nobody knows which process contains it.
+        started = marker.with_name(marker.name.replace(".contained", ".started"))
+        me = os.getpid()
+        start_ticks = Path(f"/proc/{me}/stat").read_text().rsplit(")", 1)[1].split()[19]
+        tmp = started.with_name(started.name + ".tmp")
+        tmp.write_text(f"{me} {start_ticks}\n")
+        os.replace(tmp, started)
         child = os.fork()
         if child == 0:
             try:

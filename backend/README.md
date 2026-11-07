@@ -114,7 +114,6 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 | `DD_WORKER_LEASE_SECONDS` | `15` | heartbeat lease for worker liveness / interrupted-job detection |
 | `DD_COOKIE_SECURE` | `0` | set `1` behind TLS (local HTTP mode otherwise) |
 | `DD_ALLOWED_HOSTS` | `127.0.0.1,localhost,::1` | accepted `Host` names (anti DNS-rebinding); other hosts → 400. trusted-local accepts loopback names only |
-| `DD_ALLOWED_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | extra origins allowed for POST/PUT (same-origin always allowed; foreign Origin / `Sec-Fetch-Site: cross-site` → 403) |
 | `DD_REPORT_UI_BASE` | `http://127.0.0.1:5173` | absolute UI base embedded in HTML reports (provisional route `/runs/{run}/reports/{report}`) |
 
 ## API overview
@@ -142,6 +141,20 @@ read-only · 404 `NOT_FOUND` (also for other owners' IDs — existence is not le
   Check scripts expose `declared_params` = `CHECK.params` read statically (AST), never by executing the file.
 - Check `execution_status`: `SUCCEEDED` (0..N rows) | `ERROR` | `TIMEOUT` | `INVALID_OUTPUT` |
   `IMPORT_ERROR` | `CONTRACT_ERROR` | `DUPLICATE_ID`. Business `RESULT` stays PASS/FAIL only.
+
+## Same-origin deployment (no CORS)
+
+The UI and the API must be served from **one origin**. Cross-origin browser access is not supported: the API
+sends no CORS headers, answers no preflight, and rejects state-changing requests whose `Origin` host:port differs
+from `Host` (403 `ORIGIN_NOT_ALLOWED`; the scheme is ignored because TLS usually ends at the proxy).
+Setting the removed `DD_ALLOWED_ORIGINS` is a startup error.
+
+- Production: nginx serves the UI and proxies `/api/` to the backend, keeping the browser's Host
+  (`proxy_set_header Host $host;`), and the backend gets `DD_ALLOWED_HOSTS=<public name>`.
+- Development: run the UI dev server with a proxy for `/api` that **keeps the Host header** (e.g. Vite
+  `server.proxy['/api'] = 'http://127.0.0.1:8000'` without `changeOrigin`), and include that dev host in
+  `DD_ALLOWED_HOSTS` if it is not loopback.
+- `DD_REPORT_UI_BASE` only sets the absolute link target written into downloaded HTML reports; it grants no access.
 
 ## Security model — read before exposing anything
 

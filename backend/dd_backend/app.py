@@ -170,10 +170,15 @@ def create_app() -> FastAPI:
         if settings.execution_mode == "trusted-local" and not _is_loopback(request.client.host if request.client else ""):
             return reject(403, "REMOTE_CLIENT_NOT_ALLOWED", "trusted-local mode serves loopback clients only")
         if request.method not in ("GET", "HEAD", "OPTIONS"):
+            # Same-origin only (no CORS): UI and API are served from one origin (nginx /api -> backend).
+            # host:port of Origin must equal the Host header; scheme is ignored (TLS ends at the proxy).
             origin = request.headers.get("origin")
-            same = f"{request.url.scheme}://{request.headers.get('host', '').lower()}"
-            if origin is not None and origin.lower() != same and origin.lower() not in settings.allowed_origins:
-                return reject(403, "ORIGIN_NOT_ALLOWED", "Cross-origin request rejected (DD_ALLOWED_ORIGINS)")
+            if origin is not None:
+                from urllib.parse import urlsplit
+                netloc = urlsplit(origin.strip()).netloc.lower()
+                if not netloc or netloc != request.headers.get("host", "").strip().lower():
+                    return reject(403, "ORIGIN_NOT_ALLOWED",
+                                  "Cross-origin requests are not supported; serve UI and API from the same origin")
             if origin is None and request.headers.get("sec-fetch-site") == "cross-site":
                 return reject(403, "ORIGIN_NOT_ALLOWED", "Cross-site request rejected")
         length = request.headers.get("content-length")
