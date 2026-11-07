@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Отчёт автоматических проверок</title>
+<style>
+  :root { color-scheme: light; font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif; }
+  body { max-width: 1500px; margin: 2rem auto; padding: 0 1rem; color: #1f2937; background: #fff; }
+  h1 { font-size: 1.65rem; }
+  .summary { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1.5rem 0; }
+  .metric { min-width: 145px; padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; }
+  .metric strong { display: block; font-size: 1.5rem; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th,td { border-bottom: 1px solid #e5e7eb; padding: .65rem .5rem; text-align: left; vertical-align: top; }
+  th { background: #f3f4f6; position: sticky; top: 0; }
+  tr.failed { background: #fff1f2; }
+  tr.passed { background: #f0fdf4; }
+  tr.low { background: #fff8eb; }
+  a { color: #175cd3; }
+  td.apps { min-width: 280px; max-width: 420px; word-break: break-word; }
+  .muted { color: #6b7280; }
+  @media print { th { position: static; } tr { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<h1>Отчёт автоматических проверок</h1>
+<p>Сводный анализ BEFORE (MASTER) и AFTER (BETA). Данные отчёта сохранены в этом HTML.</p>
+<p><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166">Открыть интерактивный сводный отчёт в приложении</a></p>
+<div class="summary">
+<div class="metric">Всего заявок<strong>1</strong></div>
+<div class="metric">С различиями<strong>1</strong></div>
+<div class="metric">Со сменой решения<strong>1</strong></div>
+<div class="metric">PASS<strong>5</strong></div>
+<div class="metric">FAIL<strong>8</strong></div>
+</div>
+<h2>Автоматические проверки</h2>
+<p class="muted">FAIL означает сигнал проверки, а не ошибку выполнения. Малые выборки с CONFIDENCE=LOW выделены мягко.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Проверка</th><th>Срез</th><th>Аргумент</th><th>CNT</th><th>TOTAL</th><th>Метрика</th><th>Результат</th><th>Уверенность</th><th>Заявки</th></tr></thead>
+<tbody><tr class="low"><td>Approval Rate по продукту упал</td><td>AFTER</td><td>DO_ZARPL</td><td>0</td><td>1</td><td>0.0000</td><td>PASS</td><td>LOW</td><td class="apps">—</td></tr><tr class="low"><td>Approval Rate по продукту упал</td><td>AFTER</td><td>KUPI_KUPI</td><td>0</td><td>1</td><td>0.0000</td><td>PASS</td><td>LOW</td><td class="apps">—</td></tr><tr class="low"><td>Изменился состав атрибутов</td><td>BEFORE</td><td>decisionResult.product_trials.rules.description</td><td>1</td><td>1</td><td>1.0000</td><td>FAIL</td><td>LOW</td><td class="apps"><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166?app_id=I32554354">I32554354</a></td></tr><tr class="low"><td>Изменился состав атрибутов</td><td>BEFORE</td><td>decisionResult.product_trials.rules.hit</td><td>1</td><td>1</td><td>1.0000</td><td>FAIL</td><td>LOW</td><td class="apps"><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166?app_id=I32554354">I32554354</a></td></tr><tr class="low"><td>Изменился состав атрибутов</td><td>BEFORE</td><td>decisionResult.product_trials.rules.name</td><td>1</td><td>1</td><td>1.0000</td><td>FAIL</td><td>LOW</td><td class="apps"><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166?app_id=I32554354">I32554354</a></td></tr><tr class="low"><td>Изменился состав атрибутов</td><td>AFTER</td><td>decisionResult.available_offers.product_id</td><td>1</td><td>1</td><td>1.0000</td><td>FAIL</td><td>LOW</td><td class="apps"><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166?app_id=I32554354">I32554354</a></td></tr><tr class="low"><td>Изменился состав атрибутов</td><td>AFTER</td><td>decisionResult.available_offers.product_name</td><td>1</td><td>1</td><td>1.0000</td><td>FAIL</td><td>LOW</td><td class="apps"><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166?app_id=I32554354">I32554354</a></td></tr><tr class="low"><td>Изменился состав атрибутов</td><td>AFTER</td><td>decisionResult.available_offers.rank</td><td>1</td><td>1</td><td>1.0000</td><td>FAIL</td><td>LOW</td><td class="apps"><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166?app_id=I32554354">I32554354</a></td></tr><tr class="low"><td>Изменился состав атрибутов</td><td>AFTER</td><td>decisionResult.available_offers.type</td><td>1</td><td>1</td><td>1.0000</td><td>FAIL</td><td>LOW</td><td class="apps"><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166?app_id=I32554354">I32554354</a></td></tr><tr class="passed"><td>Различие вызвано входными данными</td><td>AFTER</td><td>characteristics.score_okb</td><td>0</td><td>1</td><td>0.0000</td><td>PASS</td><td>HIGH</td><td class="apps">—</td></tr><tr class="passed"><td>Различие вызвано входными данными</td><td>AFTER</td><td>предиктор != источник</td><td>0</td><td>1</td><td>0.0000</td><td>PASS</td><td>HIGH</td><td class="apps">—</td></tr><tr class="low"><td>Стоп-фактор перестал работать</td><td>AFTER</td><td>AGELOW@21</td><td>1</td><td>1</td><td>1.0000</td><td>FAIL</td><td>LOW</td><td class="apps"><a href="http://127.0.0.1:5173/runs/run_4eb5a1d0bcb3a973fb8d/reports/rep_9c7b93ba4f922cca5166?app_id=I32554354">I32554354</a></td></tr><tr class="passed"><td>Сменилась целевая модель решения</td><td>AFTER</td><td></td><td>0</td><td>1</td><td>0.0000</td><td>PASS</td><td>HIGH</td><td class="apps">—</td></tr></tbody></table></div>
+<h2>Диагностика выполнения</h2><p>Ошибок исполнения нет.</p>
+<p class="muted">Ссылки на отдельные заявки требуют доступного веб-приложения. Список APP_IDS в проверках может быть ограничен настройками проверки.</p>
+</body></html>
