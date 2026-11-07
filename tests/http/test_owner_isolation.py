@@ -134,3 +134,41 @@ def test_forged_cookie_gets_fresh_owner(base_url, a_entities):
 
     with httpx.Client(base_url=base_url, cookies={"dd_session": "forged-token"}) as c:
         assert c.get(f"/api/runs/{a_entities['run']['run_id']}").status_code == 404
+
+
+def _locator_from_pivot(body):
+    """Find an opaque group locator in a pivot response (field name not frozen yet)."""
+    cells = body.get("cells", body.get("items", [])) if isinstance(body, dict) else []
+    for cell in cells:
+        for key in ("group", "locator", "group_locator", "group_id"):
+            if isinstance(cell, dict) and isinstance(cell.get(key), str) and cell[key]:
+                return cell[key]
+    return None
+
+
+def test_query_endpoints_and_group_locators_are_owner_scoped(api_a, api_b, completed_example_run):
+    """CR2 #4: pivot, pivot-facts, drill-down and groups/{locator}/applications exercised as A (control) and as B.
+    B must get 404 and none of A's APP_IDs, even with a real locator obtained by A."""
+    run_id = completed_example_run["final"]["run_id"]
+    app = "I32554354"
+    pivot_body = {"dimensions": ["PATH"], "filters": {}}
+    drill_body = {"group": {"SOURCE": "AFTER", "PATH": "decisionResult.decision"}}
+
+    a_pivot = api_a.post(f"/api/runs/{run_id}/pivot", pivot_body, key=None)
+    assert a_pivot.status_code == 200 or (a_pivot.status_code == 501 and
+                                          a_pivot.json().get("code") == "ANALYTICS_UNAVAILABLE"), a_pivot.text[:300]
+    a_drill = api_a.post(f"/api/runs/{run_id}/pivot-facts/applications", drill_body, key=None)
+    assert a_drill.status_code == 200 and app in a_drill.text, a_drill.text[:300]
+    assert api_a.get(f"/api/runs/{run_id}/pivot-facts").status_code == 200
+    locator = _locator_from_pivot(a_pivot.json()) if a_pivot.status_code == 200 else None
+    if locator:
+        a_group = api_a.get(f"/api/runs/{run_id}/groups/{locator}/applications")
+        assert a_group.status_code == 200 and app in a_group.text, a_group.text[:300]
+    group_url = f"/api/runs/{run_id}/groups/{locator or 'qa-no-locator-available'}/applications"
+
+    for resp in (api_b.post(f"/api/runs/{run_id}/pivot", pivot_body, key=None),
+                 api_b.post(f"/api/runs/{run_id}/pivot-facts/applications", drill_body, key=None),
+                 api_b.get(f"/api/runs/{run_id}/pivot-facts"),
+                 api_b.get(group_url)):
+        assert resp.status_code == 404, (resp.request.url, resp.status_code, resp.text[:200])
+        assert app not in resp.text

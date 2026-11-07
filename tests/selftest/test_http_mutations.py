@@ -32,6 +32,9 @@ CASES = {
     "cr2_6_early_report_validated": ("builtin-only", "checks_garbage_while_running",
                                      [H + "test_runs_async.py::test_not_ready_before_completion_and_status_stays_responsive"],
                                      None),
+    "cr2_4_query_isolation": ("builtin-only", "shared_owner_for_query",
+                              [H + "test_owner_isolation.py::test_query_endpoints_and_group_locators_are_owner_scoped"],
+                              "passed"),
 }
 EXTRA_ENV = {"cr2_2_bounded_wait": {"QA_RUN_TIMEOUT": "30"}}
 
