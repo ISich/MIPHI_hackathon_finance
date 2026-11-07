@@ -1,5 +1,8 @@
 """Account ownership, password storage, session rotation, and login failures."""
 from datetime import datetime, timedelta, timezone
+import json
+
+import pytest
 
 from conftest import make_client, peer
 from dd_backend import auth, sessions
@@ -101,6 +104,68 @@ def test_password_change_preserves_owner_and_revokes_sessions(no_worker_client, 
     assert login(c).status_code == 401
     assert login(c, password="new-private-password").status_code == 200
     assert sessions.resolve(db, c.cookies.get("dd_session")) == owner
+
+
+def test_username_change_preserves_work_and_revokes_old_credentials_and_cookie(no_worker_client, monkeypatch):
+    c = no_worker_client
+    assert login(c).status_code == 200
+    db = c.app.state.db
+    token = c.cookies.get("dd_session")
+    owner = sessions.resolve(db, token)
+    script = c.post("/api/scripts", json={"kind": "check", "name": "saved", "code": "CHECK = {}\n"}).json()
+    monkeypatch.setenv("DD_AUTH_USERNAME", "analyst")
+    auth.configure(db, c.app.state.settings.allowed_hosts)
+    assert sessions.resolve(db, token) is None
+    assert login(c, "admin").status_code == 401
+    assert login(c, "analyst").status_code == 200
+    assert sessions.resolve(db, c.cookies.get("dd_session")) == owner
+    assert c.get(f"/api/scripts/{script['script_id']}").status_code == 200
+    with make_client() as restarted:
+        assert login(restarted, "admin").status_code == 401
+        assert login(restarted, "analyst").status_code == 200
+        assert sessions.resolve(restarted.app.state.db, restarted.cookies.get("dd_session")) == owner
+
+
+def test_legacy_extra_accounts_cannot_login_or_keep_their_sessions(no_worker_client):
+    c = no_worker_client
+    db = c.app.state.db
+    with db.tx() as con:
+        con.execute("INSERT INTO users VALUES (?,?,?,?)", ("own_legacy", "former-admin", "Former", auth.password_hash("former-password")))
+    token, _ = sessions.create(db, "own_legacy")
+    auth.configure(db, c.app.state.settings.allowed_hosts)
+    assert sessions.resolve(db, token) is None
+    assert login(c, "former-admin", "former-password").status_code == 401
+    assert login(c).status_code == 200
+
+
+@pytest.mark.parametrize("path,payload", [
+    ("/api/auth/login", {"username": "\ud800", "password": "admin12345"}),
+    ("/api/auth/login", {"username": "admin", "password": "private\udfff"}),
+    ("/api/scripts", {"kind": "check", "name": "bad", "code": "\ud800"}),
+    ("/api/scripts", {"kind": "check", "name": "bad", "code": "CHECK = {}", "params": {"nested": [{"\ud800": "bad"}]}}),
+])
+def test_invalid_unicode_is_a_validation_error_not_a_500(no_worker_client, path, payload):
+    c = no_worker_client
+    response = c.post(path, content=json.dumps(payload), headers={"content-type": "application/json"})
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert response.json()["request_id"] == response.headers["x-request-id"]
+    assert "private" not in response.text and "admin12345" not in response.text
+
+
+def test_valid_non_ascii_account_credentials_still_work(no_worker_client, monkeypatch):
+    c = no_worker_client
+    monkeypatch.setenv("DD_AUTH_USERNAME", "аналитик🧑")
+    monkeypatch.setenv("DD_AUTH_PASSWORD", "пароль🔒123")
+    auth.configure(c.app.state.db, c.app.state.settings.allowed_hosts)
+    assert login(c, "аналитик🧑", "пароль🔒123").status_code == 200
+
+
+def test_invalid_unicode_in_account_configuration_is_reported(no_worker_client, monkeypatch):
+    monkeypatch.setenv("DD_AUTH_DISPLAY_NAME", "bad\udcff")  # POSIX surrogateescape can carry this byte in env.
+    from dd_backend.settings import SettingsError
+    with pytest.raises(SettingsError, match="Unicode"):
+        auth.configure(no_worker_client.app.state.db, no_worker_client.app.state.settings.allowed_hosts)
 
 
 def test_account_survives_app_restart(no_worker_client):

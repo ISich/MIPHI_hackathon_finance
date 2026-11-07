@@ -86,6 +86,11 @@ The default password is for local development; a private `DD_AUTH_PASSWORD` is r
 `DD_ALLOWED_HOSTS` includes non-loopback names. Passwords are stored as salted PBKDF2-SHA256 hashes
 (600,000 iterations) in SQLite. Keep the configured password in the server environment across restarts.
 Changing it on restart invalidates existing sessions while preserving the account's data and owner ID.
+Changing the configured username also renames the bootstrap account and revokes its sessions. Only
+the configured username can sign in. Legacy extra accounts created by older versions are inactive
+and their sessions are revoked; their stored work is retained. If the target username already exists
+in a legacy database, that account remains the selected owner; otherwise the original account is renamed.
+Request strings containing lone Unicode surrogates return a 422 validation envelope before hashing or storage.
 Failed logins have a shared persistent limit of 10 attempts per minute. Registration, roles, and password
 recovery are not implemented.
 

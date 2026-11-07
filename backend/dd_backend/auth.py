@@ -34,20 +34,31 @@ def configure(db: Database, allowed_hosts: frozenset) -> None:
         raise SettingsError("DD_AUTH_USERNAME and DD_AUTH_DISPLAY_NAME must contain 1..120 characters")
     if not 8 <= len(password) <= 256:
         raise SettingsError("DD_AUTH_PASSWORD must contain 8..256 characters")
+    try:
+        for value in (username, password, display_name):
+            value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise SettingsError("DD_AUTH_* values must contain valid Unicode characters") from None
     if not allowed_hosts <= LOOPBACK_NAMES and password == "admin12345":
         raise SettingsError("Set a private DD_AUTH_PASSWORD before allowing non-loopback hosts")
     with db.tx() as con:
         row = con.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if row is None:
+            # Renaming the single bootstrap account retains its saved work/owner.
+            # Legacy databases may contain extra accounts created by the old rename behavior.
+            row = con.execute("SELECT * FROM users ORDER BY rowid LIMIT 1").fetchone()
+        if row is None:
             con.execute("INSERT INTO users VALUES (?,?,?,?)",
                         (new_id("own"), username, display_name, password_hash(password)))
         else:
             # Environment changes update credentials without changing ownership of saved work.
-            changed = not verify(password, row["password_hash"])
-            con.execute("UPDATE users SET display_name = ?, password_hash = ? WHERE owner_id = ?",
-                        (display_name, password_hash(password) if changed else row["password_hash"], row["owner_id"]))
-            if changed:
+            password_changed = not verify(password, row["password_hash"])
+            con.execute("UPDATE users SET username = ?, display_name = ?, password_hash = ? WHERE owner_id = ?",
+                        (username, display_name, password_hash(password) if password_changed else row["password_hash"], row["owner_id"]))
+            if password_changed or row["username"] != username:
                 con.execute("DELETE FROM sessions WHERE owner_id = ?", (row["owner_id"],))
+        # Old legacy credentials cannot stay active, and their cookies must stop working too.
+        con.execute("DELETE FROM sessions WHERE owner_id IN (SELECT owner_id FROM users WHERE username != ?)", (username,))
 
 
 def user(db: Database, owner_id: str) -> dict | None:
@@ -64,7 +75,9 @@ def authenticate(db: Database, username: str, password: str) -> str:
         started = limit["started_at"] if failures else ts
         if failures >= 10:
             raise ApiError(429, "LOGIN_RATE_LIMITED", "Слишком много попыток. Повторите вход через минуту.")
-        row = con.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
+        configured_username = os.environ.get("DD_AUTH_USERNAME", "admin").strip()
+        row = con.execute("SELECT * FROM users WHERE username = ? AND username = ?",
+                          (username.strip(), configured_username)).fetchone()
         # Use the same work factor for unknown usernames.
         encoded = row["password_hash"] if row else f"pbkdf2_sha256${ITERATIONS}$unknown${'0' * 64}"
         valid = verify(password, encoded) and row is not None
