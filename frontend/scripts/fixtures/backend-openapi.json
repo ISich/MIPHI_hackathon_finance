@@ -1,0 +1,4660 @@
+{
+ "components": {
+  "schemas": {
+   "Artifact": {
+    "properties": {
+     "artifact_id": {
+      "title": "Artifact Id",
+      "type": "string"
+     },
+     "bytes": {
+      "title": "Bytes",
+      "type": "integer"
+     },
+     "created_at": {
+      "title": "Created At",
+      "type": "string"
+     },
+     "download": {
+      "title": "Download",
+      "type": "string"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "rows": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rows"
+     },
+     "sha256": {
+      "title": "Sha256",
+      "type": "string"
+     }
+    },
+    "required": [
+     "artifact_id",
+     "kind",
+     "rows",
+     "bytes",
+     "sha256",
+     "created_at",
+     "download"
+    ],
+    "title": "Artifact",
+    "type": "object"
+   },
+   "ArtifactList": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/Artifact"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "run_id",
+     "items"
+    ],
+    "title": "ArtifactList",
+    "type": "object"
+   },
+   "Body_replace_script_file_api_scripts__script_id__file_put": {
+    "properties": {
+     "file": {
+      "contentMediaType": "application/octet-stream",
+      "title": "File",
+      "type": "string"
+     }
+    },
+    "required": [
+     "file"
+    ],
+    "title": "Body_replace_script_file_api_scripts__script_id__file_put",
+    "type": "object"
+   },
+   "Body_upload_script_api_scripts_upload_post": {
+    "properties": {
+     "file": {
+      "contentMediaType": "application/octet-stream",
+      "title": "File",
+      "type": "string"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "params": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Params"
+     }
+    },
+    "required": [
+     "kind",
+     "name",
+     "file"
+    ],
+    "title": "Body_upload_script_api_scripts_upload_post",
+    "type": "object"
+   },
+   "CheckRef": {
+    "additionalProperties": false,
+    "properties": {
+     "params": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Params"
+     },
+     "script_id": {
+      "title": "Script Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "script_id"
+    ],
+    "title": "CheckRef",
+    "type": "object"
+   },
+   "CheckRun": {
+    "properties": {
+     "check_run_id": {
+      "title": "Check Run Id",
+      "type": "string"
+     },
+     "created_at": {
+      "title": "Created At",
+      "type": "string"
+     },
+     "dataset_revision_id": {
+      "title": "Dataset Revision Id",
+      "type": "string"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RunError"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "executions": {
+      "items": {
+       "$ref": "#/components/schemas/Execution"
+      },
+      "title": "Executions",
+      "type": "array"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "initial": {
+      "title": "Initial",
+      "type": "boolean"
+     },
+     "links": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Links",
+      "type": "object"
+     },
+     "report_id": {
+      "title": "Report Id",
+      "type": "string"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "selected": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Selected",
+      "type": "array"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "status": {
+      "enum": [
+       "QUEUED",
+       "RUNNING",
+       "COMPLETED",
+       "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "check_run_id",
+     "run_id",
+     "dataset_revision_id",
+     "report_id",
+     "initial",
+     "status",
+     "selected",
+     "executions",
+     "error",
+     "created_at",
+     "started_at",
+     "finished_at",
+     "links"
+    ],
+    "title": "CheckRun",
+    "type": "object"
+   },
+   "CheckRunCreate": {
+    "additionalProperties": false,
+    "properties": {
+     "checks": {
+      "items": {
+       "$ref": "#/components/schemas/CheckRef"
+      },
+      "title": "Checks",
+      "type": "array"
+     }
+    },
+    "required": [
+     "checks"
+    ],
+    "title": "CheckRunCreate",
+    "type": "object"
+   },
+   "CodeSnapshot": {
+    "properties": {
+     "check_run_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Check Run Id"
+     },
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "code_sha256": {
+      "title": "Code Sha256",
+      "type": "string"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "script_id": {
+      "title": "Script Id",
+      "type": "string"
+     },
+     "script_revision": {
+      "title": "Script Revision",
+      "type": "integer"
+     },
+     "slot": {
+      "title": "Slot",
+      "type": "string"
+     },
+     "source": {
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "run_id",
+     "slot",
+     "script_id",
+     "kind",
+     "source",
+     "name",
+     "script_revision",
+     "code_sha256",
+     "params",
+     "code"
+    ],
+    "title": "CodeSnapshot",
+    "type": "object"
+   },
+   "Configuration": {
+    "properties": {
+     "checks": {
+      "items": {},
+      "title": "Checks",
+      "type": "array"
+     },
+     "config_id": {
+      "title": "Config Id",
+      "type": "string"
+     },
+     "created_at": {
+      "title": "Created At",
+      "type": "string"
+     },
+     "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "slots": {
+      "additionalProperties": true,
+      "title": "Slots",
+      "type": "object"
+     }
+    },
+    "required": [
+     "config_id",
+     "name",
+     "dataset_id",
+     "slots",
+     "checks",
+     "created_at"
+    ],
+    "title": "Configuration",
+    "type": "object"
+   },
+   "ConfigurationCreate": {
+    "additionalProperties": false,
+    "properties": {
+     "checks": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/CheckRef"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Selected checks. Omitted = all built-in organizer checks; [] = explicitly none (technical run; report completeness NO_CHECKS_SELECTED)",
+      "title": "Checks"
+     },
+     "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "slots": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/SlotRef"
+      },
+      "propertyNames": {
+       "enum": [
+        "normalize",
+        "compare",
+        "segments",
+        "aggregate"
+       ]
+      },
+      "title": "Slots",
+      "type": "object"
+     }
+    },
+    "required": [
+     "name",
+     "dataset_id"
+    ],
+    "title": "ConfigurationCreate",
+    "type": "object"
+   },
+   "DataRoots": {
+    "properties": {
+     "roots": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Roots",
+      "type": "array"
+     }
+    },
+    "required": [
+     "roots"
+    ],
+    "title": "DataRoots",
+    "type": "object"
+   },
+   "Dataset": {
+    "properties": {
+     "after": {
+      "title": "After",
+      "type": "string"
+     },
+     "before": {
+      "title": "Before",
+      "type": "string"
+     },
+     "created_at": {
+      "title": "Created At",
+      "type": "string"
+     },
+     "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "mode": {
+      "title": "Mode",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "revisions": {
+      "items": {
+       "$ref": "#/components/schemas/DatasetRevision"
+      },
+      "title": "Revisions",
+      "type": "array"
+     },
+     "root": {
+      "title": "Root",
+      "type": "string"
+     },
+     "shared": {
+      "title": "Shared",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "dataset_id",
+     "name",
+     "shared",
+     "root",
+     "mode",
+     "before",
+     "after",
+     "created_at",
+     "revisions"
+    ],
+    "title": "Dataset",
+    "type": "object"
+   },
+   "DatasetCreate": {
+    "additionalProperties": false,
+    "properties": {
+     "after": {
+      "title": "After",
+      "type": "string"
+     },
+     "before": {
+      "description": "Path relative to the root (no absolute paths, no '..')",
+      "title": "Before",
+      "type": "string"
+     },
+     "mode": {
+      "description": "files: one BEFORE/AFTER JSON pair; dirs: two directories paired by file name",
+      "enum": [
+       "files",
+       "dirs"
+      ],
+      "title": "Mode",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "root": {
+      "description": "Name of a server-side allowlisted data root (see GET /api/datasets/roots)",
+      "title": "Root",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "root",
+     "mode",
+     "before",
+     "after"
+    ],
+    "title": "DatasetCreate",
+    "type": "object"
+   },
+   "DatasetRevision": {
+    "properties": {
+     "created_at": {
+      "title": "Created At",
+      "type": "string"
+     },
+     "fingerprint": {
+      "title": "Fingerprint",
+      "type": "string"
+     },
+     "missing_after": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Missing After",
+      "type": "array"
+     },
+     "missing_before": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Missing Before",
+      "type": "array"
+     },
+     "pairs": {
+      "title": "Pairs",
+      "type": "integer"
+     },
+     "revision_id": {
+      "title": "Revision Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "revision_id",
+     "fingerprint",
+     "pairs",
+     "missing_before",
+     "missing_after",
+     "created_at"
+    ],
+    "title": "DatasetRevision",
+    "type": "object"
+   },
+   "ErrorBody": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "details": {
+      "additionalProperties": true,
+      "title": "Details",
+      "type": "object"
+     },
+     "message": {
+      "title": "Message",
+      "type": "string"
+     },
+     "request_id": {
+      "title": "Request Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "code",
+     "message",
+     "details",
+     "request_id"
+    ],
+    "title": "ErrorBody",
+    "type": "object"
+   },
+   "Event": {
+    "properties": {
+     "check_run_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Check Run Id"
+     },
+     "code_ref": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code Ref"
+     },
+     "level": {
+      "title": "Level",
+      "type": "string"
+     },
+     "message": {
+      "title": "Message",
+      "type": "string"
+     },
+     "processed": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Processed"
+     },
+     "seq": {
+      "title": "Seq",
+      "type": "integer"
+     },
+     "stage": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stage"
+     },
+     "substep": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Substep"
+     },
+     "total": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total"
+     },
+     "ts": {
+      "title": "Ts",
+      "type": "string"
+     }
+    },
+    "required": [
+     "seq",
+     "ts",
+     "check_run_id",
+     "stage",
+     "substep",
+     "level",
+     "message",
+     "processed",
+     "total",
+     "code_ref"
+    ],
+    "title": "Event",
+    "type": "object"
+   },
+   "EventPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/Event"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "next_after": {
+      "title": "Next After",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "items",
+     "next_after"
+    ],
+    "title": "EventPage",
+    "type": "object"
+   },
+   "Execution": {
+    "properties": {
+     "check_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Check Id"
+     },
+     "diagnostics": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+     },
+     "duration_seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration Seconds"
+     },
+     "execution_id": {
+      "title": "Execution Id",
+      "type": "string"
+     },
+     "execution_status": {
+      "enum": [
+       "SUCCEEDED",
+       "ERROR",
+       "TIMEOUT",
+       "INVALID_OUTPUT",
+       "IMPORT_ERROR",
+       "CONTRACT_ERROR",
+       "DUPLICATE_ID"
+      ],
+      "title": "Execution Status",
+      "type": "string"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Label"
+     },
+     "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+     },
+     "rows_count": {
+      "title": "Rows Count",
+      "type": "integer"
+     },
+     "script_id": {
+      "title": "Script Id",
+      "type": "string"
+     },
+     "slot": {
+      "title": "Slot",
+      "type": "string"
+     }
+    },
+    "required": [
+     "execution_id",
+     "slot",
+     "script_id",
+     "check_id",
+     "label",
+     "params",
+     "execution_status",
+     "rows_count",
+     "diagnostics",
+     "duration_seconds"
+    ],
+    "title": "Execution",
+    "type": "object"
+   },
+   "PivotDrillDown": {
+    "additionalProperties": false,
+    "properties": {
+     "group": {
+      "additionalProperties": true,
+      "description": "Pivot dimensions incl. SOURCE (D4 DuckDBMart.pivot_app_ids)",
+      "title": "Group",
+      "type": "object"
+     },
+     "limit": {
+      "default": 200,
+      "maximum": 10000.0,
+      "minimum": 1.0,
+      "title": "Limit",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "group"
+    ],
+    "title": "PivotDrillDown",
+    "type": "object"
+   },
+   "Report": {
+    "properties": {
+     "check_run_id": {
+      "title": "Check Run Id",
+      "type": "string"
+     },
+     "completeness": {
+      "anyOf": [
+       {
+        "enum": [
+         "COMPLETE",
+         "INCOMPLETE",
+         "NO_CHECKS_SELECTED"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Completeness"
+     },
+     "created_at": {
+      "title": "Created At",
+      "type": "string"
+     },
+     "dataset_revision_id": {
+      "title": "Dataset Revision Id",
+      "type": "string"
+     },
+     "links": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Links",
+      "type": "object"
+     },
+     "published_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Published At"
+     },
+     "report_id": {
+      "title": "Report Id",
+      "type": "string"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "sha256": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sha256"
+     },
+     "status": {
+      "enum": [
+       "PENDING",
+       "PUBLISHED",
+       "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "report_id",
+     "run_id",
+     "dataset_revision_id",
+     "check_run_id",
+     "status",
+     "completeness",
+     "sha256",
+     "created_at",
+     "published_at",
+     "links"
+    ],
+    "title": "Report",
+    "type": "object"
+   },
+   "ReportChecks": {
+    "properties": {
+     "check_run_id": {
+      "title": "Check Run Id",
+      "type": "string"
+     },
+     "checks": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Checks",
+      "type": "array"
+     },
+     "completeness": {
+      "title": "Completeness",
+      "type": "string"
+     },
+     "dataset_revision_id": {
+      "title": "Dataset Revision Id",
+      "type": "string"
+     },
+     "diagnostics": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+     },
+     "executions": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Executions",
+      "type": "array"
+     },
+     "report_id": {
+      "title": "Report Id",
+      "type": "string"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "summary": {
+      "additionalProperties": true,
+      "title": "Summary",
+      "type": "object"
+     },
+     "timings_seconds": {
+      "additionalProperties": true,
+      "title": "Timings Seconds",
+      "type": "object"
+     }
+    },
+    "required": [
+     "report_id",
+     "run_id",
+     "check_run_id",
+     "dataset_revision_id",
+     "completeness",
+     "summary",
+     "checks",
+     "diagnostics",
+     "timings_seconds",
+     "executions"
+    ],
+    "title": "ReportChecks",
+    "type": "object"
+   },
+   "ReportList": {
+    "properties": {
+     "initial_report_id": {
+      "title": "Initial Report Id",
+      "type": "string"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/Report"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "run_id",
+     "initial_report_id",
+     "items"
+    ],
+    "title": "ReportList",
+    "type": "object"
+   },
+   "Run": {
+    "properties": {
+     "checks_completeness": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Checks Completeness"
+     },
+     "config_id": {
+      "title": "Config Id",
+      "type": "string"
+     },
+     "created_at": {
+      "title": "Created At",
+      "type": "string"
+     },
+     "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "dataset_revision_id": {
+      "title": "Dataset Revision Id",
+      "type": "string"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RunError"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "initial_check_run_id": {
+      "title": "Initial Check Run Id",
+      "type": "string"
+     },
+     "initial_report_id": {
+      "title": "Initial Report Id",
+      "type": "string"
+     },
+     "links": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Links",
+      "type": "object"
+     },
+     "processed": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Processed"
+     },
+     "report_status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Report Status"
+     },
+     "run_id": {
+      "title": "Run Id",
+      "type": "string"
+     },
+     "stage": {
+      "anyOf": [
+       {
+        "enum": [
+         "VALIDATING",
+         "NORMALIZING",
+         "COMPARING",
+         "AGGREGATING",
+         "CHECKING",
+         "FINALIZING"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stage"
+     },
+     "started_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Started At"
+     },
+     "status": {
+      "enum": [
+       "QUEUED",
+       "RUNNING",
+       "COMPLETED",
+       "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+     },
+     "substep": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Substep"
+     },
+     "total": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total"
+     }
+    },
+    "required": [
+     "run_id",
+     "status",
+     "stage",
+     "substep",
+     "processed",
+     "total",
+     "config_id",
+     "dataset_id",
+     "dataset_revision_id",
+     "initial_check_run_id",
+     "initial_report_id",
+     "report_status",
+     "checks_completeness",
+     "error",
+     "created_at",
+     "started_at",
+     "finished_at",
+     "links"
+    ],
+    "title": "Run",
+    "type": "object"
+   },
+   "RunCreate": {
+    "additionalProperties": false,
+    "properties": {
+     "configuration_id": {
+      "title": "Configuration Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "configuration_id"
+    ],
+    "title": "RunCreate",
+    "type": "object"
+   },
+   "RunError": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "message": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Message"
+     }
+    },
+    "required": [
+     "code",
+     "message"
+    ],
+    "title": "RunError",
+    "type": "object"
+   },
+   "RunPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/Run"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "limit": {
+      "title": "Limit",
+      "type": "integer"
+     },
+     "offset": {
+      "title": "Offset",
+      "type": "integer"
+     },
+     "total": {
+      "title": "Total",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "items",
+     "total",
+     "limit",
+     "offset"
+    ],
+    "title": "RunPage",
+    "type": "object"
+   },
+   "Script": {
+    "properties": {
+     "builtin_ref": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Builtin Ref"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "code_sha256": {
+      "title": "Code Sha256",
+      "type": "string"
+     },
+     "created_at": {
+      "title": "Created At",
+      "type": "string"
+     },
+     "declared_params": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "check: CHECK.params read statically (AST, not executed); builtin normalize: presets",
+      "title": "Declared Params"
+     },
+     "filename": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Filename"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+     },
+     "revision": {
+      "title": "Revision",
+      "type": "integer"
+     },
+     "script_id": {
+      "title": "Script Id",
+      "type": "string"
+     },
+     "shared": {
+      "title": "Shared",
+      "type": "boolean"
+     },
+     "source": {
+      "enum": [
+       "builtin",
+       "workspace",
+       "file"
+      ],
+      "title": "Source",
+      "type": "string"
+     },
+     "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+     }
+    },
+    "required": [
+     "script_id",
+     "kind",
+     "source",
+     "name",
+     "filename",
+     "builtin_ref",
+     "shared",
+     "params",
+     "revision",
+     "code_sha256",
+     "created_at",
+     "updated_at"
+    ],
+    "title": "Script",
+    "type": "object"
+   },
+   "ScriptCreate": {
+    "additionalProperties": false,
+    "properties": {
+     "code": {
+      "description": "Python source (workspace editor text)",
+      "title": "Code",
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "normalize",
+       "compare",
+       "segments",
+       "aggregate",
+       "check"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+     }
+    },
+    "required": [
+     "kind",
+     "name",
+     "code"
+    ],
+    "title": "ScriptCreate",
+    "type": "object"
+   },
+   "ScriptKind": {
+    "properties": {
+     "custom_execution_enabled": {
+      "title": "Custom Execution Enabled",
+      "type": "boolean"
+     },
+     "entrypoint": {
+      "title": "Entrypoint",
+      "type": "string"
+     },
+     "example": {
+      "title": "Example",
+      "type": "string"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "output_columns": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Output Columns",
+      "type": "array"
+     },
+     "sources": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Sources",
+      "type": "array"
+     },
+     "template": {
+      "title": "Template",
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "entrypoint",
+     "output_columns",
+     "template",
+     "example",
+     "sources",
+     "custom_execution_enabled"
+    ],
+    "title": "ScriptKind",
+    "type": "object"
+   },
+   "ScriptUpdate": {
+    "additionalProperties": false,
+    "properties": {
+     "code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "params": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Params"
+     }
+    },
+    "title": "ScriptUpdate",
+    "type": "object"
+   },
+   "SlotRef": {
+    "additionalProperties": false,
+    "properties": {
+     "params": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Params"
+     },
+     "script_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Omit to use the built-in procedure for this slot",
+      "title": "Script Id"
+     }
+    },
+    "title": "SlotRef",
+    "type": "object"
+   }
+  }
+ },
+ "info": {
+  "description": "Platform runtime API: datasets/scripts/configurations registry, asynchronous Runs executed by a single worker, run events, artifacts, check runs and reports. Errors use the envelope {code, message, details, request_id}. Owner scope comes from the HttpOnly `dd_session` cookie only.",
+  "title": "Decision Diff backend (D2)",
+  "version": "0.1.0"
+ },
+ "openapi": "3.1.0",
+ "paths": {
+  "/api/check-runs/{check_run_id}": {
+   "get": {
+    "operationId": "get_check_run_api_check_runs__check_run_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "check_run_id",
+      "required": true,
+      "schema": {
+       "title": "Check Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CheckRun"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Get Check Run",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/check-runs/{check_run_id}/code/{slot}": {
+   "get": {
+    "operationId": "check_run_code_api_check_runs__check_run_id__code__slot__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "check_run_id",
+      "required": true,
+      "schema": {
+       "title": "Check Run Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "slot",
+      "required": true,
+      "schema": {
+       "title": "Slot",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CodeSnapshot"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Check Run Code",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/configurations": {
+   "get": {
+    "operationId": "list_configurations_api_configurations_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/Configuration"
+         },
+         "title": "Response List Configurations Api Configurations Get",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Configurations",
+    "tags": [
+     "configurations"
+    ]
+   },
+   "post": {
+    "operationId": "create_configuration_api_configurations_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ConfigurationCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Configuration"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Create Configuration",
+    "tags": [
+     "configurations"
+    ]
+   }
+  },
+  "/api/configurations/{config_id}": {
+   "get": {
+    "operationId": "get_configuration_api_configurations__config_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "config_id",
+      "required": true,
+      "schema": {
+       "title": "Config Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Configuration"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Get Configuration",
+    "tags": [
+     "configurations"
+    ]
+   }
+  },
+  "/api/datasets": {
+   "get": {
+    "operationId": "list_datasets_api_datasets_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/Dataset"
+         },
+         "title": "Response List Datasets Api Datasets Get",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Datasets",
+    "tags": [
+     "datasets"
+    ]
+   },
+   "post": {
+    "operationId": "create_dataset_api_datasets_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DatasetCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Dataset"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Create Dataset",
+    "tags": [
+     "datasets"
+    ]
+   }
+  },
+  "/api/datasets/roots": {
+   "get": {
+    "operationId": "data_roots_api_datasets_roots_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DataRoots"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Data Roots",
+    "tags": [
+     "datasets"
+    ]
+   }
+  },
+  "/api/datasets/{dataset_id}": {
+   "get": {
+    "operationId": "get_dataset_api_datasets__dataset_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "dataset_id",
+      "required": true,
+      "schema": {
+       "title": "Dataset Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Dataset"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Get Dataset",
+    "tags": [
+     "datasets"
+    ]
+   }
+  },
+  "/api/datasets/{dataset_id}/revisions": {
+   "post": {
+    "operationId": "rescan_dataset_api_datasets__dataset_id__revisions_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "dataset_id",
+      "required": true,
+      "schema": {
+       "title": "Dataset Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Dataset"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Rescan files; adds a new revision if the fingerprint changed",
+    "tags": [
+     "datasets"
+    ]
+   }
+  },
+  "/api/reports/{report_id}": {
+   "get": {
+    "operationId": "get_report_api_reports__report_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "report_id",
+      "required": true,
+      "schema": {
+       "title": "Report Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Report"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Get Report",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/reports/{report_id}/checks": {
+   "get": {
+    "operationId": "report_checks_api_reports__report_id__checks_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "report_id",
+      "required": true,
+      "schema": {
+       "title": "Report Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReportChecks"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Report Checks",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/reports/{report_id}/checks.html": {
+   "get": {
+    "operationId": "report_html_api_reports__report_id__checks_html_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "report_id",
+      "required": true,
+      "schema": {
+       "title": "Report Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "text/html": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "HTML snapshot rendered by D4 decision_diff.html_report for this exact report",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/runs": {
+   "get": {
+    "operationId": "list_runs_api_runs_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "maximum": 200,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "offset",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "minimum": 0,
+       "title": "Offset",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RunPage"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "List Runs",
+    "tags": [
+     "runs"
+    ]
+   },
+   "post": {
+    "operationId": "create_run_api_runs_post",
+    "parameters": [
+     {
+      "description": "Required. Same key + same body returns the already accepted resource (no duplicate); scope = session owner.",
+      "in": "header",
+      "name": "idempotency-key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Required. Same key + same body returns the already accepted resource (no duplicate); scope = session owner.",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RunCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Run"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Accept a Run (snapshots code/params now); executed asynchronously by the worker",
+    "tags": [
+     "runs"
+    ]
+   }
+  },
+  "/api/runs/{run_id}": {
+   "get": {
+    "operationId": "get_run_api_runs__run_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Run"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Get Run",
+    "tags": [
+     "runs"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/applications/{app_id}": {
+   "get": {
+    "operationId": "application_api_runs__run_id__applications__app_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "app_id",
+      "required": true,
+      "schema": {
+       "title": "App Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Application Api Runs  Run Id  Applications  App Id  Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Segment row and comparison attributes of one application (D4 DuckDBMart.application)",
+    "tags": [
+     "results"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/artifacts": {
+   "get": {
+    "operationId": "run_artifacts_api_runs__run_id__artifacts_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ArtifactList"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Run Artifacts",
+    "tags": [
+     "results"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/artifacts/{artifact_id}": {
+   "get": {
+    "operationId": "download_artifact_api_runs__run_id__artifacts__artifact_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "artifact_id",
+      "required": true,
+      "schema": {
+       "title": "Artifact Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Download Artifact",
+    "tags": [
+     "results"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/check-runs": {
+   "post": {
+    "operationId": "create_check_run_api_runs__run_id__check_runs_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     },
+     {
+      "description": "Required. Same key + same body returns the already accepted resource (no duplicate); scope = session owner.",
+      "in": "header",
+      "name": "idempotency-key",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Required. Same key + same body returns the already accepted resource (no duplicate); scope = session owner.",
+       "title": "Idempotency-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CheckRunCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CheckRun"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Check-only execution on the finished data revision; creates new check_run_id + report_id",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/checks": {
+   "get": {
+    "operationId": "run_checks_api_runs__run_id__checks_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReportChecks"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Checks of the run's INITIAL report (never the latest)",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/code/{slot}": {
+   "get": {
+    "operationId": "run_code_api_runs__run_id__code__slot__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "slot",
+      "required": true,
+      "schema": {
+       "title": "Slot",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CodeSnapshot"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Code+params snapshot actually executed (slot: normalize|compare|segments|aggregate|check-NN)",
+    "tags": [
+     "runs"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/events": {
+   "get": {
+    "operationId": "run_events_api_runs__run_id__events_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "after",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "minimum": 0,
+       "title": "After",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 500,
+       "maximum": 2000,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EventPage"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Run Events",
+    "tags": [
+     "runs"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/groups/{group}/applications": {
+   "get": {
+    "operationId": "group_applications_api_runs__run_id__groups__group__applications_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "group",
+      "required": true,
+      "schema": {
+       "title": "Group",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     },
+     "501": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Group Applications",
+    "tags": [
+     "results"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/pivot": {
+   "post": {
+    "operationId": "pivot_rollup_api_runs__run_id__pivot_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     },
+     "501": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Server pivot rollup with dims/filters: not implemented by D4 yet (501 ANALYTICS_UNAVAILABLE)",
+    "tags": [
+     "results"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/pivot-facts": {
+   "get": {
+    "operationId": "pivot_facts_api_runs__run_id__pivot_facts_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 1000,
+       "maximum": 10000,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "offset",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "minimum": 0,
+       "title": "Offset",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Pivot Facts Api Runs  Run Id  Pivot Facts Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Page of base pivot facts (D4 DuckDBMart.pivot). CNT must not be summed across groups.",
+    "tags": [
+     "results"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/pivot-facts/applications": {
+   "post": {
+    "operationId": "pivot_drill_api_runs__run_id__pivot_facts_applications_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PivotDrillDown"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Pivot Drill Api Runs  Run Id  Pivot Facts Applications Post",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Drill-down: APP_IDs of a pivot group (D4 DuckDBMart.pivot_app_ids; page only, no full total)",
+    "tags": [
+     "results"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/reports": {
+   "get": {
+    "operationId": "run_reports_api_runs__run_id__reports_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReportList"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Run Reports",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/runs/{run_id}/summary": {
+   "get": {
+    "operationId": "run_summary_api_runs__run_id__summary_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Run Summary Api Runs  Run Id  Summary Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Computed summary of a COMPLETED run (409 NOT_READY before)",
+    "tags": [
+     "results"
+    ]
+   }
+  },
+  "/api/script-kinds": {
+   "get": {
+    "operationId": "script_kinds_api_script_kinds_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/ScriptKind"
+         },
+         "title": "Response Script Kinds Api Script Kinds Get",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Script Kinds",
+    "tags": [
+     "scripts"
+    ]
+   }
+  },
+  "/api/scripts": {
+   "get": {
+    "operationId": "list_scripts_api_scripts_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "kind",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Kind"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/Script"
+         },
+         "title": "Response List Scripts Api Scripts Get",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "List Scripts",
+    "tags": [
+     "scripts"
+    ]
+   },
+   "post": {
+    "operationId": "create_script_api_scripts_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScriptCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Script"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Create a workspace script from editor text",
+    "tags": [
+     "scripts"
+    ]
+   }
+  },
+  "/api/scripts/upload": {
+   "post": {
+    "operationId": "upload_script_api_scripts_upload_post",
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_upload_script_api_scripts_upload_post"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Script"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Create a script from an uploaded .py file (source=file)",
+    "tags": [
+     "scripts"
+    ]
+   }
+  },
+  "/api/scripts/{script_id}": {
+   "get": {
+    "operationId": "get_script_api_scripts__script_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "script_id",
+      "required": true,
+      "schema": {
+       "title": "Script Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Script"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Get Script",
+    "tags": [
+     "scripts"
+    ]
+   },
+   "put": {
+    "operationId": "update_script_api_scripts__script_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "script_id",
+      "required": true,
+      "schema": {
+       "title": "Script Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScriptUpdate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Script"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Edit workspace text/params (new revision; runs already started keep their snapshot)",
+    "tags": [
+     "scripts"
+    ]
+   }
+  },
+  "/api/scripts/{script_id}/file": {
+   "put": {
+    "operationId": "replace_script_file_api_scripts__script_id__file_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "script_id",
+      "required": true,
+      "schema": {
+       "title": "Script Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_replace_script_file_api_scripts__script_id__file_put"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Script"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Replace Script File",
+    "tags": [
+     "scripts"
+    ]
+   }
+  },
+  "/api/session": {
+   "get": {
+    "operationId": "session_api_session_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Session Api Session Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Current anonymous session (cookie is issued automatically)",
+    "tags": [
+     "session"
+    ]
+   }
+  },
+  "/health": {
+   "get": {
+    "operationId": "health_health_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Health Health Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Process is alive",
+    "tags": [
+     "system"
+    ]
+   }
+  },
+  "/ready": {
+   "get": {
+    "operationId": "ready_ready_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Dependencies are ready (DB, core, DuckDB, checks, data roots, worker)",
+    "tags": [
+     "system"
+    ]
+   }
+  }
+ }
+}
