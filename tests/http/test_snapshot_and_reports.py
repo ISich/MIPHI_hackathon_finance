@@ -34,7 +34,7 @@ def test_config_and_code_snapshot_survive_script_edit(api_a, examples_root, exec
     run_id = accepted.json()["run_id"]
     assert api_a.put(f"/api/scripts/{sid}", {"code": CHECK_V2}).status_code == 200  # edit right after accept
     final = api_a.wait(f"/api/runs/{run_id}")
-    assert final["status"] == "COMPLETED", final
+    assert final["status"] == "COMPLETED", (final["status"], final["stage"], final["error"])
     snap = api_a.get(f"/api/runs/{run_id}/code/check-01").json()
     assert snap["code_sha256"] == _sha(CHECK_V1) and "qa v1" in snap["code"]
     rows = api_a.get(f"/api/runs/{run_id}/checks").json()["checks"]

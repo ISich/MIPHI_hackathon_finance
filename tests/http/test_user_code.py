@@ -51,7 +51,7 @@ def test_example_procedures_run_in_every_slot(api_a, examples_root, trusted):
     ds = api_a.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
     cfg = api_a.config(ds["dataset_id"], slots=slots)
     final = api_a.wait(f"/api/runs/{api_a.start_run(cfg['config_id']).json()['run_id']}")
-    assert final["status"] == "COMPLETED", final
+    assert final["status"] == "COMPLETED", (final["status"], final["stage"], final["error"])
     for k, ref in slots.items():
         snap = api_a.get(f"/api/runs/{final['run_id']}/code/{k}").json()
         assert snap["script_id"] == ref["script_id"] and snap["source"] == "workspace"

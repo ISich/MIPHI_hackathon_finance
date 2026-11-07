@@ -22,7 +22,7 @@ def test_accept_is_fast_202_with_identity_and_status_url(completed_example_run):
 
 def test_run_completes_with_status_separate_from_stage(completed_example_run):
     final = completed_example_run["final"]
-    assert final["status"] == "COMPLETED", final
+    assert final["status"] == "COMPLETED", (final["status"], final["stage"], final["error"])
     assert final["error"] is None and final["finished_at"]
     assert final["stage"] in STAGES  # stage is its own field, not a status value
 

@@ -26,7 +26,7 @@ def test_events_dataset_builtin_checks_fail_with_expected_app_ids(api_a, fixture
     root, _ = fixture_root
     ds = api_a.dataset(root, "dirs", "events/BEFORE", "events/AFTER")
     final = api_a.wait(f"/api/runs/{api_a.start_run(api_a.config(ds['dataset_id'])['config_id']).json()['run_id']}")
-    assert final["status"] == "COMPLETED", final
+    assert final["status"] == "COMPLETED", (final["status"], final["stage"], final["error"])
     doc = api_a.get(f"/api/runs/{final['run_id']}/checks").json()
     assert doc["completeness"] == "COMPLETE"
     assert {e["execution_status"] for e in doc["executions"]} == {"SUCCEEDED"} and len(doc["executions"]) == 5

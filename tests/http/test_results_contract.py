@@ -13,7 +13,7 @@ def events_run(api_a, fixture_root):
     root, _ = fixture_root
     ds = api_a.dataset(root, "dirs", "events/BEFORE", "events/AFTER")
     final = api_a.wait(f"/api/runs/{api_a.start_run(api_a.config(ds['dataset_id'])['config_id']).json()['run_id']}")
-    assert final["status"] == "COMPLETED", final
+    assert final["status"] == "COMPLETED", (final["status"], final["stage"], final["error"])
     return {"run": final, "dataset": ds}
 
 
@@ -51,7 +51,8 @@ def test_stage_start_events_reference_code(api_a, events_run):
 
 
 def test_pivot_rollup_is_explicitly_unavailable_not_empty(api_a, events_run):
-    r = api_a.post(f"/api/runs/{events_run['run']['run_id']}/pivot", {"rows": ["PATH"]}, key=None)
+    r = api_a.post(f"/api/runs/{events_run['run']['run_id']}/pivot", {"dimensions": ["PATH"], "filters": {}},
+                   key=None)
     if r.status_code == 501:
         assert_envelope(r, 501, "ANALYTICS_UNAVAILABLE")
     else:
@@ -59,11 +60,16 @@ def test_pivot_rollup_is_explicitly_unavailable_not_empty(api_a, events_run):
 
 
 def test_pivot_rollup_with_user_layout(api_a, events_run):
-    r = api_a.post(f"/api/runs/{events_run['run']['run_id']}/pivot", {"rows": ["PATH"]}, key=None)
+    # wire format as published by the backend OpenAPI (PivotQuery: dimensions, filters, limit, offset)
+    r = api_a.post(f"/api/runs/{events_run['run']['run_id']}/pivot", {"dimensions": ["PATH"], "filters": {}},
+                   key=None)
     known_defect(r.status_code == 501 and r.json().get("code") == "ANALYTICS_UNAVAILABLE",
                  "API-DISC-02: server pivot rollup not implemented (501 ANALYTICS_UNAVAILABLE); FR-011, AC-10")
     assert r.status_code == 200, r.text
-    assert r.json().get("cells") is not None
+    body = r.json()
+    cells = body.get("cells", body.get("items"))
+    assert cells, body
+    assert any("characteristics.score_okb" in str(c) for c in cells)
 
 
 def test_drilldown_returns_full_distinct_total(api_a, events_run):
