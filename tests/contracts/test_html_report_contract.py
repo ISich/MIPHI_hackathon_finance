@@ -6,6 +6,7 @@ import re
 import pytest
 
 from support.fixtures import pair, run_real_pipeline
+from support.http_api import known_defect
 
 pytestmark = pytest.mark.contract
 
@@ -48,20 +49,21 @@ def test_html_rejects_non_http_link(report):
             render_html_report(report, report_url=bad)
 
 
-@pytest.mark.xfail(reason="DISC-10: HTML export has no Run ID / report_id / check params / completeness flag "
-                          "(PRD §9: export contains Run ID, parameters/completeness; api.md: HTML built for a "
-                          "concrete report_id). Renderer takes only summary/checks/diagnostics.")
 def test_html_identifies_run_and_report(report):
     from decision_diff.html_report import render_html_report
 
     html = render_html_report({**report, "run_id": "run_abc", "report_id": "rep_1"}, report_url=URL)
-    assert "run_abc" in html.replace(URL, "") and "rep_1" in html
+    body = html.replace(URL, "")
+    known_defect("run_abc" not in body and "rep_1" not in body,
+                 "DISC-10: HTML export carries no Run ID / report_id (PRD §9); renderer ignores them")
+    assert "run_abc" in body and "rep_1" in body
 
 
-@pytest.mark.xfail(reason="DISC-11: with execution errors present the HTML has no explicit 'checks incomplete' "
-                          "marker; only a diagnostics list (PRD §10: заметная пометка «проверки выполнены не полностью»).")
 def test_html_marks_incomplete_checks(report):
     from decision_diff.html_report import render_html_report
 
+    assert report["diagnostics"], "fixture must contain an execution error"
     html = render_html_report(report, report_url=URL).lower()
-    assert "не полностью" in html or "incomplete" in html
+    assert "valueerror" in html
+    known_defect("не полностью" not in html and "incomplete" not in html,
+                 "DISC-11: no explicit 'checks incomplete' marker when execution errors exist (PRD §10)")

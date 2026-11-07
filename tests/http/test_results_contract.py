@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from support.http_api import Api, assert_envelope
+from support.http_api import Api, assert_envelope, known_defect
 
 
 @pytest.fixture(scope="module")
@@ -28,12 +28,17 @@ def test_summary_core_metrics(api_a, events_run):
     assert s["changed_apps"] <= s["total_apps"]
 
 
-@pytest.mark.xfail(reason="API-DISC-01: summary has no decision directions APPROVE->REJECT / REJECT->APPROVE and no "
-                          "'changed without decision change' count (FR-013 first screen); only approval rates.")
+DIRECTION_KEYS = ("approve_to_reject", "reject_to_approve")
+
+
 def test_summary_has_decision_directions(api_a, events_run):
-    s = _summary(api_a, events_run["run"]["run_id"])
-    text = str(s).upper()
-    assert "APPROVE_TO_REJECT" in text or "APPROVE->REJECT" in text or "APPROVE→REJECT" in text
+    r = api_a.get(f"/api/runs/{events_run['run']['run_id']}/summary")
+    assert r.status_code == 200, r.text
+    s = r.json().get("summary", r.json())
+    flat = {k.lower(): v for k, v in s.items()}
+    known_defect(not any(k in flat for k in DIRECTION_KEYS) and "approval_rate_before" in flat,
+                 "API-DISC-01: summary has approval rates but no APPROVE->REJECT / REJECT->APPROVE counts (FR-013)")
+    assert flat["approve_to_reject"] == 2 and flat["reject_to_approve"] == 0
 
 
 def test_stage_start_events_reference_code(api_a, events_run):
@@ -53,14 +58,23 @@ def test_pivot_rollup_is_explicitly_unavailable_not_empty(api_a, events_run):
         assert r.status_code == 200 and r.json().get("cells") is not None
 
 
-@pytest.mark.xfail(reason="API-DISC-02 (from DISC-03/04): server pivot rollup with dims/filters and union-membership "
-                          "totals is 501; drill-down returns total=null. FR-011/FR-012/AC-09/AC-10 not met yet.")
-def test_pivot_rollup_and_drilldown_total(api_a, events_run):
-    run_id = events_run["run"]["run_id"]
-    assert api_a.post(f"/api/runs/{run_id}/pivot", {"rows": ["PATH"]}, key=None).status_code == 200
-    drill = api_a.post(f"/api/runs/{run_id}/pivot-facts/applications",
-                       {"group": {"SOURCE": "AFTER", "PATH": "characteristics.score_okb"}, "limit": 1}, key=None)
-    assert drill.json()["total"] == 6
+def test_pivot_rollup_with_user_layout(api_a, events_run):
+    r = api_a.post(f"/api/runs/{events_run['run']['run_id']}/pivot", {"rows": ["PATH"]}, key=None)
+    known_defect(r.status_code == 501 and r.json().get("code") == "ANALYTICS_UNAVAILABLE",
+                 "API-DISC-02: server pivot rollup not implemented (501 ANALYTICS_UNAVAILABLE); FR-011, AC-10")
+    assert r.status_code == 200, r.text
+    assert r.json().get("cells") is not None
+
+
+def test_drilldown_returns_full_distinct_total(api_a, events_run):
+    r = api_a.post(f"/api/runs/{events_run['run']['run_id']}/pivot-facts/applications",
+                   {"group": {"SOURCE": "AFTER", "PATH": "characteristics.score_okb"}, "limit": 1}, key=None)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["items"] and len(body["items"]) == 1
+    known_defect("total" in body and body["total"] is None,
+                 "API-DISC-02/DISC-03: drill-down page has total=null (no full distinct total); FR-012, AC-09")
+    assert body["total"] == 6
 
 
 def test_drilldown_rejects_unknown_dimension(api_a, events_run):
@@ -88,11 +102,12 @@ def test_check_params_from_config_are_applied(api_a, events_run):
     assert ("KUPI_KUPI", "FAIL") in [(r["ARGUMENT"], r["RESULT"]) for r in default if "Approval" in r["LABEL"]]
 
 
-@pytest.mark.xfail(reason="API-DISC-03: built-in organizer check scripts expose params={} although CHECK.params "
-                          "holds DEFAULTS (max_drop_rel, app_ids_limit, ...); UI cannot show/edit defaults (FR-009).")
 def test_builtin_check_exposes_default_params(api_a):
-    ar = [c for c in api_a.builtin_checks() if "ar_drop" in c["name"]][0]
-    assert ar["params"].get("max_drop_rel") == 0.10
+    found = [c for c in api_a.builtin_checks() if "ar_drop" in c["name"]]
+    assert len(found) == 1, found
+    known_defect(found[0]["params"] == {},
+                 "API-DISC-03: built-in organizer check exposes params={} instead of CHECK.params DEFAULTS (FR-009)")
+    assert found[0]["params"].get("max_drop_rel") == 0.10
 
 
 def test_two_sessions_run_concurrently_without_mixing(base_url, fixture_root):

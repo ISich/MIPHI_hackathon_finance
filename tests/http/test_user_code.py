@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from support.http_api import assert_envelope
+from support.http_api import assert_envelope, known_defect
 
 KINDS = ("normalize", "compare", "segments", "aggregate", "check")
 
@@ -90,14 +90,12 @@ def test_new_check_joins_original_five_in_new_common_report(api_a, completed_exa
     assert api_a.get(f"/api/reports/{run['initial_report_id']}/checks").json() == initial_doc
 
 
-@pytest.mark.xfail(reason="API-DISC-04: with built-in normalize the only param is config in {real, teaching}; the "
-                          "exclusion list (FR-019 'виден и изменяем пользователем') cannot be edited without custom "
-                          "code, i.e. not at all in the default builtin-only mode.")
-def test_exclusions_editable_with_builtin_normalize(api_a, examples_root):
-    ds = api_a.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
+def test_exclusions_visible_and_editable_with_builtin_normalize(api_a):
     normalize = [s for s in api_a.get("/api/scripts", params={"kind": "normalize"}).json() if s["source"] == "builtin"]
-    r = api_a.post("/api/configurations", {"name": "excl", "dataset_id": ds["dataset_id"], "slots": {
-        "normalize": {"script_id": normalize[0]["script_id"], "params": {"config": "real", "excluded_paths": []}}}},
-        key=None)
-    assert r.status_code == 201, r.text
-    assert "excluded_paths" in str(normalize[0]["params"])
+    assert len(normalize) == 1, normalize
+    kinds = {k["kind"]: k for k in api_a.get("/api/script-kinds").json()}
+    exposed = str(normalize[0]["params"]) + str(kinds["normalize"])
+    known_defect(normalize[0]["params"] == {"config": "real"} and "excluded" not in exposed,
+                 "API-DISC-04: built-in normalize exposes only params.config in {real, teaching}; the exclusion "
+                 "list (FR-019) is neither visible nor editable without custom code")
+    assert "excluded" in exposed

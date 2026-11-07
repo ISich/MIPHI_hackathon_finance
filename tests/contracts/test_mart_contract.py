@@ -1,8 +1,8 @@
 """MartAPI (D4 `DuckDBMart` @ pinned core) against PRD §8.3 / S5 and docs/contracts/data.md.
 
-Real DuckDB built by the real core CLI + D4 storage. `xfail(strict)` = a documented
-discrepancy (DISC-xx in QA_RESULT.md); it turns red when D4 fixes it, so the marker
-must then be removed.
+Real DuckDB built by the real core CLI + D4 storage. A documented discrepancy (DISC-xx)
+is an expected failure ONLY under its exact defect condition (support.http_api.known_defect);
+any other failure is a real FAIL, and a fixed defect makes the test run its real assertions.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import random
 import pytest
 
 from support.fixtures import pair, run_real_pipeline
+from support.http_api import known_defect
 
 pytestmark = pytest.mark.contract
 
@@ -133,8 +134,6 @@ def test_mart_is_read_only(mart):
         mart._connection.execute("DELETE FROM comparison")
 
 
-@pytest.mark.xfail(reason="DISC-01: rows() has no ORDER BY; PRD §8.3 fixes order (APP_ID, PATH, ARRAY_KEY). "
-                          "Holds today only because the CLI writes sorted CSV.")
 def test_rows_order_is_fixed_even_if_storage_input_unsorted(run, tmp_path):
     from decision_diff.mart import DuckDBMart
     from decision_diff.storage import build_database
@@ -152,23 +151,29 @@ def test_rows_order_is_fixed_even_if_storage_input_unsorted(run, tmp_path):
     build_database(out, out / "mart.duckdb")
     with DuckDBMart(out / "mart.duckdb") as m:
         keys = [(r["APP_ID"], r["PATH"], r["ARRAY_KEY"]) for r in m.rows()]
-    assert keys == sorted(keys)
+    assert len(keys) == len(set(keys)) and keys
+    known_defect(keys != sorted(keys), "DISC-01: rows() has no ORDER BY; PRD §8.3 fixes (APP_ID, PATH, ARRAY_KEY)")
 
 
-@pytest.mark.xfail(reason="DISC-02: list passed to scalar filter (key/array_key/value_*) raises raw DuckDB "
-                          "ConversionException, not a MartFilterError diagnostic (PRD §8.3 A: diagnostic error).")
 @pytest.mark.parametrize("name", ["key", "array_key", "value_before"])
 def test_list_for_scalar_filter_is_mart_filter_error(mart, name):
+    import duckdb
+
     from decision_diff.mart import MartFilterError
 
-    with pytest.raises(MartFilterError):
+    try:
         mart.count(**{name: ["x"]})
+    except MartFilterError:
+        return
+    except duckdb.ConversionException:
+        known_defect(True, "DISC-02: list in scalar filter raises raw duckdb.ConversionException, not MartFilterError")
+    pytest.fail(f"list for scalar filter {name!r} was silently accepted")
 
 
-@pytest.mark.xfail(reason="DISC-03: pivot_app_ids returns a capped list (limit<=10000) without full distinct "
-                          "total/pagination; data.md requires items + full distinct total.")
 def test_pivot_drilldown_returns_full_distinct_total(mart):
     result = mart.pivot_app_ids({"SOURCE": "BEFORE", "PATH": SCORE}, limit=1)
+    known_defect(isinstance(result, list) and len(result) == 1,
+                 "DISC-03: pivot_app_ids returns a capped list without full distinct total (data.md)")
     assert isinstance(result, dict) and result.get("total") == 4
 
 
@@ -181,8 +186,8 @@ def test_pivot_drilldown_matches_fact_cnt(mart):
         assert len(mart.pivot_app_ids(group, limit=10000)) == fact["CNT"]
 
 
-@pytest.mark.xfail(reason="DISC-04: pivot_facts has no CHANGE_TYPE / segments dimensions and no materialized "
-                          "BaseMembership (data.md level 1); known per core-verification.md.")
 def test_base_facts_have_change_type_dimension(mart):
     fact = mart.pivot(limit=1)[0]
-    assert "CHANGE_TYPE" in fact
+    assert {"PATH", "SOURCE", "CNT"} <= set(fact)
+    known_defect("CHANGE_TYPE" not in fact,
+                 "DISC-04: pivot_facts has no CHANGE_TYPE/segments dimensions, no BaseMembership (data.md level 1)")

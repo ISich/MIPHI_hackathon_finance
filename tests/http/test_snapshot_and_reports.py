@@ -5,7 +5,8 @@ import hashlib
 
 import pytest
 
-from support.http_api import assert_envelope
+from support.http_api import known_defect
+
 
 CHECK_V1 = '''
 def run(mart, params=None):
@@ -26,15 +27,9 @@ def test_config_and_code_snapshot_survive_script_edit(api_a, examples_root, exec
     sid = script.json()["script_id"]
     ds = api_a.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
     cfg = api_a.config(ds["dataset_id"], checks=[{"script_id": sid}])
-    accepted = api_a.start_run(cfg["config_id"])
     if execution_mode != "trusted-local":
-        # custom code disabled: must be an explicit refusal, never silently running something else
-        if accepted.status_code == 202:
-            final = api_a.wait(f"/api/runs/{accepted.json()['run_id']}")
-            assert final["status"] == "FAILED" or final["checks_completeness"] != "COMPLETE", final
-        else:
-            assert_envelope(accepted, (403, 409, 422))
-        return
+        pytest.skip("snapshot of custom code needs trusted-local; builtin-only refusal: test_execution_policy.py")
+    accepted = api_a.start_run(cfg["config_id"])
     assert accepted.status_code == 202, accepted.text
     run_id = accepted.json()["run_id"]
     assert api_a.put(f"/api/scripts/{sid}", {"code": CHECK_V2}).status_code == 200  # edit right after accept
@@ -89,9 +84,11 @@ def test_report_html_links_to_this_run(api_a, completed_example_run):
     assert 'href="http' in html.text  # absolute link (FR-010)
 
 
-@pytest.mark.xfail(reason="DISC-10 (D4 renderer): HTML body lacks report_id/Run ID text; only link URL carries it")
 def test_report_html_names_report_id(api_a, completed_example_run):
     run = completed_example_run["final"]
-    html = api_a.get(f"/api/reports/{run['initial_report_id']}/checks.html").text
-    link_free = html.replace(f"/runs/{run['run_id']}/reports/{run['initial_report_id']}", "")
-    assert run["initial_report_id"] in link_free
+    r = api_a.get(f"/api/reports/{run['initial_report_id']}/checks.html")
+    assert r.status_code == 200, r.text[:300]
+    link_free = r.text.replace(f"/runs/{run['run_id']}/reports/{run['initial_report_id']}", "")
+    known_defect(run["initial_report_id"] not in link_free and "Автоматические проверки" in r.text,
+                 "DISC-10 (D4 renderer): HTML body names neither report_id nor Run ID; only the link URL carries them")
+    assert run["initial_report_id"] in link_free and run["run_id"] in link_free
