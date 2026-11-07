@@ -36,12 +36,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .form { display: flex; flex-direction: column; gap: 12px; max-width: 900px; }
 .form label, label { display: block; }
 .form select, .form input[type="text"], .form input:not([type]), input:not([type]), select { font: inherit; padding: 4px 6px; max-width: 100%; }
+select { max-width: 100%; }
+label select { display: block; width: 100%; max-width: 640px; }
 fieldset { border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; gap: 6px; }
 .check-option { display: flex; gap: 6px; align-items: center; }
 
 .table-wrap { overflow-x: auto; }
 .table { border-collapse: collapse; width: 100%; background: var(--card); margin: 8px 0; }
-.table th, .table td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; word-break: break-word; }
+.table th, .table td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.table th { overflow-wrap: normal; }
+.table-wrap > .table { min-width: 560px; }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .table .total { font-weight: 600; }
 .table tr.low { color: var(--muted); }
@@ -58,7 +62,7 @@ fieldset { border: 1px solid var(--line); border-radius: 6px; display: flex; fle
 .state-loading, .state-empty, .muted { color: var(--muted); }
 .details { white-space: pre-wrap; max-height: 300px; overflow: auto; background: #0001; padding: 6px; }
 
-.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; border: 1px solid currentColor; }
+.badge { white-space: nowrap; display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600; border: 1px solid currentColor; }
 .badge-completed, .badge-pass, .badge-exec-ok { color: var(--pass); }
 .badge-failed, .badge-fail, .badge-exec-error { color: var(--fail); }
 .badge-running, .badge-queued { color: var(--accent); }
