@@ -208,6 +208,9 @@ class Database:
         with self.connect() as con:
             con.execute("PRAGMA journal_mode=WAL")
             con.executescript(SCHEMA)
+            cols = {r[1] for r in con.execute("PRAGMA table_info(workers)")}
+            if "proc_start" not in cols:  # migration: process identity for same-host liveness
+                con.execute("ALTER TABLE workers ADD COLUMN proc_start TEXT")
 
     def connect(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.path, timeout=30, isolation_level=None)

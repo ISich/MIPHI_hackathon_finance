@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -61,6 +62,21 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _proc_start(pid: int) -> str | None:
+    """Kernel start time of a process (guards against PID reuse); None if gone or unknown."""
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    except (FileNotFoundError, ProcessLookupError, IndexError, PermissionError):
+        return None if not _pid_alive(pid) else "unknown"
+    if fields[0] == "Z":
+        return None
+    return fields[19]
+
+
+class LeaseLost(Exception):
+    """This worker no longer owns the job (another worker failed/recovered it): stop, publish nothing."""
+
+
 class Worker:
     def __init__(self, settings: Settings, db: Database) -> None:
         self.settings = settings
@@ -77,7 +93,8 @@ class Worker:
     def _register(self) -> None:
         ts = now()
         with self.db.tx() as con:
-            con.execute("INSERT INTO workers VALUES (?,?,?,?,?)", (self.worker_id, os.getpid(), socket.gethostname(), ts, ts))
+            con.execute("INSERT INTO workers(worker_id, pid, hostname, started_at, heartbeat_at, proc_start) VALUES (?,?,?,?,?,?)",
+                        (self.worker_id, os.getpid(), socket.gethostname(), ts, ts, _proc_start(os.getpid())))
         self.recover()
 
     def start_thread(self) -> None:
@@ -115,16 +132,41 @@ class Worker:
 
     def heartbeat(self) -> None:
         ts = now()
+        lost = False
         try:
             with self.db.tx() as con:
                 con.execute("UPDATE workers SET heartbeat_at = ? WHERE worker_id = ?", (ts, self.worker_id))
                 cur = self._current
-                if cur.get("kind") == "DATA_RUN":
-                    con.execute("UPDATE runs SET heartbeat_at = ? WHERE run_id = ?", (ts, cur["ref"]))
-                elif cur.get("kind") == "CHECK_RUN":
-                    con.execute("UPDATE check_runs SET heartbeat_at = ? WHERE check_run_id = ?", (ts, cur["ref"]))
+                if cur.get("kind"):
+                    table, key = self._job_table(cur["kind"])
+                    n = con.execute(f"UPDATE {table} SET heartbeat_at = ? WHERE {key} = ? AND worker_id = ? AND status = 'RUNNING'",
+                                    (ts, cur["ref"], self.worker_id)).rowcount
+                    lost = n == 0
         except Exception:  # never kill the heartbeat thread
             log.exception("heartbeat failed")
+        if lost:
+            log.warning("lost ownership of %s; killing its child", self._current.get("ref"))
+            self._kill_child()
+
+    @staticmethod
+    def _job_table(kind: str) -> tuple[str, str]:
+        return ("runs", "run_id") if kind == "DATA_RUN" else ("check_runs", "check_run_id")
+
+    def _assert_owner(self, con) -> None:
+        cur = self._current
+        if not cur.get("kind"):
+            return
+        table, key = self._job_table(cur["kind"])
+        row = con.execute(f"SELECT status, worker_id FROM {table} WHERE {key} = ?", (cur["ref"],)).fetchone()
+        if row is None or row["status"] != "RUNNING" or row["worker_id"] != self.worker_id:
+            raise LeaseLost(cur["ref"])
+
+    @contextmanager
+    def _job_tx(self):
+        """Write transaction fenced by job ownership: a worker that lost its lease changes nothing."""
+        with self.db.tx() as con:
+            self._assert_owner(con)
+            yield con
 
     # ------------------------------------------------------------ recovery
     def recover(self, include_self: bool = False) -> list[str]:
@@ -140,8 +182,11 @@ class Worker:
                 w = workers.get(worker_id or "")
                 if w is None:
                     return True
-                if w["hostname"] == host and not _pid_alive(w["pid"]):
-                    return True
+                if w["hostname"] == host:
+                    # Same host: liveness is the process itself (pid + kernel start time), not the heartbeat.
+                    # A paused-but-alive worker keeps its job, so executions never overlap.
+                    start = _proc_start(w["pid"])
+                    return start is None or (w.get("proc_start") not in (None, "unknown") and start not in ("unknown", w["proc_start"]))
                 return _age_seconds(w["heartbeat_at"]) > self.settings.worker_lease_seconds
 
             for job in con.execute("SELECT * FROM jobs WHERE status = 'RUNNING'").fetchall():
@@ -159,8 +204,12 @@ class Worker:
                     self._fail_check_run_tx(con, job["ref_id"], "RUN_INTERRUPTED", msg)
                 con.execute("UPDATE jobs SET status = 'DONE' WHERE job_seq = ?", (job["job_seq"],))
                 failed.append(job["ref_id"])
-            con.execute("DELETE FROM workers WHERE worker_id <> ? AND (julianday('now') - julianday(heartbeat_at)) * 86400 > ?",
-                        (self.worker_id, self.settings.worker_lease_seconds * 4))
+            for w in workers.values():
+                if w["worker_id"] != self.worker_id and dead(w["worker_id"], None) and \
+                        not con.execute("SELECT 1 FROM runs WHERE worker_id=? AND status='RUNNING' UNION ALL "
+                                        "SELECT 1 FROM check_runs WHERE worker_id=? AND status='RUNNING'",
+                                        (w["worker_id"], w["worker_id"])).fetchone():
+                    con.execute("DELETE FROM workers WHERE worker_id = ?", (w["worker_id"],))
         return failed
 
     # --------------------------------------------------------------- claim
@@ -201,6 +250,9 @@ class Worker:
                         self.execute_data_run(job["ref_id"])
                     else:
                         self.execute_check_run(job["ref_id"])
+                except LeaseLost:
+                    log.warning("job %s: ownership lost; nothing published by this worker", job["ref_id"])
+                    self._kill_child()
                 except Exception:
                     # Never leave a job RUNNING forever: fail it explicitly, details only in the server log.
                     log.exception("job %s %s failed inside the worker", job["kind"], job["ref_id"])
@@ -282,46 +334,56 @@ class Worker:
         buf = b""
         open_streams = 2
         leader_done = False
-        with log_path.open("ab") as logf:
-            while open_streams:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    timed_out = True
-                    self._kill_child()
-                    break
-                if self._stop.is_set():
-                    self._kill_child()
-                    break
-                if child.poll() is not None and not leader_done:
-                    # Leader finished: kill leftovers so they cannot hold our pipes or outlive the job.
-                    leader_done = True
-                    self._kill_child()
-                for key, _ in sel.select(timeout=min(remaining, 0.5)):
-                    chunk = os.read(key.fileobj.fileno(), 65536)
-                    if not chunk:
-                        sel.unregister(key.fileobj)
-                        open_streams -= 1
-                        continue
-                    if key.data == "log":
-                        if log_budget > 0:
-                            logf.write(chunk[:log_budget])
-                            log_budget -= len(chunk)
-                        elif not truncated:
-                            truncated = True
-                            logf.write(b"\n[log truncated: limit reached]\n")
-                    else:
-                        buf += chunk
-                        if len(buf) > 4 * 1024 * 1024:  # protocol flood -> kill
-                            self._kill_child()
-                            buf = b""
-                        while b"\n" in buf:
-                            line, buf = buf.split(b"\n", 1)
-                            try:
-                                payload = json.loads(line)
-                            except ValueError:
-                                continue
-                            if on_event is not None and isinstance(payload, dict):
-                                on_event(payload)
+        try:
+            with log_path.open("ab") as logf:
+                while open_streams:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        timed_out = True
+                        self._kill_child()
+                        break
+                    if self._stop.is_set():
+                        self._kill_child()
+                        break
+                    if child.poll() is not None and not leader_done:
+                        # Leader finished: kill leftovers so they cannot hold our pipes or outlive the job.
+                        leader_done = True
+                        self._kill_child()
+                    for key, _ in sel.select(timeout=min(remaining, 0.5)):
+                        chunk = os.read(key.fileobj.fileno(), 65536)
+                        if not chunk:
+                            sel.unregister(key.fileobj)
+                            open_streams -= 1
+                            continue
+                        if key.data == "log":
+                            if log_budget > 0:
+                                logf.write(chunk[:log_budget])
+                                log_budget -= len(chunk)
+                            elif not truncated:
+                                truncated = True
+                                logf.write(b"\n[log truncated: limit reached]\n")
+                        else:
+                            buf += chunk
+                            if len(buf) > 4 * 1024 * 1024:  # protocol flood -> kill
+                                self._kill_child()
+                                buf = b""
+                            while b"\n" in buf:
+                                line, buf = buf.split(b"\n", 1)
+                                try:
+                                    payload = json.loads(line)
+                                except ValueError:
+                                    continue
+                                if on_event is not None and isinstance(payload, dict):
+                                    on_event(payload)
+        except BaseException:
+            self._kill_child()  # e.g. LeaseLost from on_event: never leave the child running
+            sel.close()
+            ev_file.close()
+            child.stdout.close()
+            child.wait()
+            with self._lock:
+                self._child = None
+            raise
         sel.close()
         ev_file.close()
         child.stdout.close()
@@ -347,7 +409,7 @@ class Worker:
         append_event(con, run_id, "ERROR", f"{code}: {message}", stage=r[0])
 
     def _fail_job(self, job: dict, code: str, message: str) -> None:
-        with self.db.tx() as con:
+        with self._job_tx() as con:
             if job["kind"] == "DATA_RUN":
                 row = con.execute("SELECT status FROM runs WHERE run_id=?", (job["ref_id"],)).fetchone()
                 if row and row[0] not in ("COMPLETED", "FAILED"):
@@ -367,7 +429,7 @@ class Worker:
 
     def _set_stage(self, run_id: str, stage: str, substep: str | None, message: str, code_ref: str | None = None,
                    check_run_id: str | None = None) -> None:
-        with self.db.tx() as con:
+        with self._job_tx() as con:
             con.execute("UPDATE runs SET stage=?, substep=?, processed=NULL, total=NULL WHERE run_id=?", (stage, substep, run_id))
             append_event(con, run_id, "INFO", message, stage=stage, substep=substep, code_ref=code_ref, check_run_id=check_run_id)
 
@@ -377,7 +439,7 @@ class Worker:
         cfg = json.loads((rdir / "snapshot" / "config.json").read_text("utf-8"))
         custom = [s for s in [*cfg["procedures"].values(), *cfg["checks"]] if s["source"] != "builtin"]
         if custom and settings.execution_mode != "trusted-local":
-            with self.db.tx() as con:
+            with self._job_tx() as con:
                 self._fail_run_tx(con, run_id, "CUSTOM_EXECUTION_DISABLED",
                                   "Run contains custom code but the worker runs in builtin-only mode; nothing executed")
             return
@@ -390,7 +452,7 @@ class Worker:
                 self._set_stage(run_id, p["stage"], p.get("substep"), self._sanitize(str(p.get("message", ""))), p.get("code_ref"))
             elif kind in ("event", "progress"):
                 processed, total = p.get("processed"), p.get("total")
-                with self.db.tx() as con:
+                with self._job_tx() as con:
                     if kind == "progress":
                         con.execute("UPDATE runs SET processed=?, total=? WHERE run_id=?", (processed, total, run_id))
                     append_event(con, run_id, p.get("level", "INFO"), self._sanitize(str(p.get("message", ""))),
@@ -405,14 +467,14 @@ class Worker:
         if self._stop.is_set() and state["result"] is None:
             return  # shutdown: recover(include_self=True) marks it interrupted
         if timed_out:
-            with self.db.tx() as con:
+            with self._job_tx() as con:
                 self._fail_run_tx(con, run_id, "TIMEOUT", f"Pipeline exceeded {settings.run_timeout_seconds}s and was killed")
             return
         if state["error"] is not None or rc != 0 or state["result"] is None:
             err = state["error"] or {}
             code = err.get("code") or ("KILLED_BY_LIMIT" if rc is not None and rc < 0 else "PIPELINE_CRASHED")
             message = err.get("message") or f"pipeline exited with code {rc}; see owner log"
-            with self.db.tx() as con:
+            with self._job_tx() as con:
                 self._fail_run_tx(con, run_id, code, self._sanitize(message))
                 if err.get("traceback"):
                     append_event(con, run_id, "DEBUG", self._sanitize(err["traceback"]), stage=state["stage"])
@@ -420,10 +482,10 @@ class Worker:
         result = state["result"]
         total_bytes = sum(a["bytes"] for a in result["artifacts"])
         if total_bytes > settings.max_output_bytes:
-            with self.db.tx() as con:
+            with self._job_tx() as con:
                 self._fail_run_tx(con, run_id, "OUTPUT_LIMIT", f"Artifacts total {total_bytes} bytes exceed the limit")
             return
-        with self.db.tx() as con:
+        with self._job_tx() as con:
             for a in result["artifacts"]:
                 con.execute("INSERT INTO artifacts VALUES (?,?,?,?,?,?,?,?)",
                             (new_id("art"), run_id, a["kind"], f"{run_id}/artifacts/{a['file']}", a["rows"], a["bytes"],
@@ -436,7 +498,7 @@ class Worker:
         if not ok:
             return
         self._set_stage(run_id, "FINALIZING", None, "Publishing run and initial report")
-        with self.db.tx() as con:
+        with self._job_tx() as con:
             con.execute("UPDATE runs SET status='COMPLETED', finished_at=? WHERE run_id=?", (now(), run_id))
             append_event(con, run_id, "INFO", "Run COMPLETED", stage="FINALIZING")
 
@@ -453,12 +515,12 @@ class Worker:
         if initial:
             self._set_stage(run_id, "CHECKING", None, f"Executing {len(selected)} checks (check_run {cr_id})",
                             check_run_id=cr_id)
-            with self.db.tx() as con:
+            with self._job_tx() as con:
                 con.execute("UPDATE check_runs SET status='RUNNING', started_at=?, worker_id=?, heartbeat_at=? WHERE check_run_id=?",
                             (now(), self.worker_id, now(), cr_id))
         custom = [s for s in selected if s["source"] != "builtin"]
         if custom and settings.execution_mode != "trusted-local":
-            with self.db.tx() as con:
+            with self._job_tx() as con:
                 self._fail_check_run_tx(con, cr_id, "CUSTOM_EXECUTION_DISABLED",
                                         "Custom checks are disabled in builtin-only mode; nothing executed")
                 if initial:
@@ -547,6 +609,8 @@ class Worker:
                                               "execution_status", "duration_seconds")} | {"rows_count": len(e["rows"])}
                            for e in executions],
         }
+        with self._job_tx():
+            pass  # fail fast before writing the report file if ownership was lost
         rel = f"{run_id}/reports/{report_id}.json"
         target = self.settings.runs_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -558,7 +622,7 @@ class Worker:
         import hashlib
         sha = hashlib.sha256(data).hexdigest()
         ts = now()
-        with self.db.tx() as con:
+        with self._job_tx() as con:
             for e in executions:
                 con.execute("INSERT INTO check_executions VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                             (e["execution_id"], cr_id, e["slot"], e["script_id"], e["check_id"], e["label"],
@@ -567,7 +631,7 @@ class Worker:
             con.execute("UPDATE reports SET status='PUBLISHED', completeness=?, rel_path=?, sha256=?, published_at=? "
                         "WHERE report_id=?", (completeness, rel, sha, ts, report_id))
             con.execute("UPDATE check_runs SET status='COMPLETED', finished_at=? WHERE check_run_id=?", (ts, cr_id))
-            failed = sum(1 for e in executions if e["execution_status"] != "SUCCEEDED")
+            failed = sum(1 for e in executions if e["execution_status"] != "SUCCEEDED")  # noqa
             business_fail = sum(1 for e in executions for r in e["rows"] if r.get("RESULT") == "FAIL")
             append_event(con, run_id, "WARN" if failed else "INFO",
                          f"Report {report_id} published: {len(executions)} checks, {failed} execution problems, "
