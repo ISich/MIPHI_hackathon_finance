@@ -51,3 +51,12 @@ def test_validation_error_envelope(client):
     r = client.post("/api/runs", content="{not json", headers={"content-type": "application/json", "Idempotency-Key": "k1"})
     assert r.status_code == 422
     assert r.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_committed_openapi_matches_app(client):
+    import json
+    from conftest import BACKEND_DIR
+    committed = json.loads((BACKEND_DIR / "openapi.json").read_text("utf-8"))
+    validate(committed)
+    assert committed == json.loads(json.dumps(client.app.openapi())), \
+        "openapi.json is stale: run `python -m dd_backend export-openapi --out openapi.json`"
