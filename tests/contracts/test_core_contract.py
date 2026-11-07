@@ -16,6 +16,9 @@ def _cmp(before, after, config=None):
     from decision_diff.core import normalize_pair
 
     _, rows = normalize_pair(before, after, "X1", config or REAL)
+    keys = [(r["APP_ID"], r["PATH"], r["ARRAY_KEY"]) for r in rows]
+    # CR #10: uniqueness is asserted on the RAW rows before they are indexed into a dict.
+    assert len(keys) == len(set(keys)), "duplicate comparison rows for one logical key"
     return {(r["PATH"], r["ARRAY_KEY"]): r for r in rows}
 
 
