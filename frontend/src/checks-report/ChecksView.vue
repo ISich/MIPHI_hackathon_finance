@@ -68,7 +68,7 @@ const choose = (e: Event) =>
     <AsyncView v-else-if="listed" :value="checks" what="Загрузка результатов проверок">
       <template #default="{ data: d }">
         <ErrorView v-if="docError(d)" :error="docError(d)" />
-        <ReportBody v-else :doc="d" :run-id="run.run_id" />
+        <ReportBody v-else :doc="d" :run-id="run.run_id" :return-to="`${href('runs', run.run_id, 'checks')}?report=${encodeURIComponent(d.report_id)}`" />
       </template>
     </AsyncView>
   </div>

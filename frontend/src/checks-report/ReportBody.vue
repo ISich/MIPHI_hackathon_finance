@@ -6,7 +6,7 @@ import EmptyView from "../components/EmptyView.vue";
 import CheckRowsTable from "./CheckRowsTable.vue";
 import ExecutionCard from "./ExecutionCard.vue";
 
-const props = defineProps<{ doc: ReportChecks; runId: string }>();
+const props = defineProps<{ doc: ReportChecks; runId: string; returnTo: string }>();
 const groups = computed(() => rowsByExecution(props.doc));
 const failedExec = computed(() => props.doc.executions.filter((e) => e.execution_status !== "SUCCEEDED").length);
 const failRows = computed(() => props.doc.checks.filter((r) => r.RESULT === "FAIL").length);
@@ -22,12 +22,12 @@ const passRows = computed(() => props.doc.checks.filter((r) => r.RESULT === "PAS
     </p>
     <EmptyView v-if="doc.completeness === 'NO_CHECKS_SELECTED'">Проверки не выбирались (технический Run).</EmptyView>
     <template v-if="groups">
-      <ExecutionCard v-for="g in groups" :key="g.ex.execution_id" :ex="g.ex" :rows="g.rows" :doc="doc" :run-id="runId" />
+      <ExecutionCard v-for="g in groups" :key="g.ex.execution_id" :ex="g.ex" :rows="g.rows" :doc="doc" :run-id="runId" :return-to="returnTo" />
     </template>
     <template v-else>
       <div class="state state-notready">Число строк не сходится с rows_count исполнений — строки показаны без привязки к проверке.</div>
-      <ExecutionCard v-for="ex in doc.executions" :key="ex.execution_id" :ex="ex" :rows="null" :doc="doc" :run-id="runId" />
-      <CheckRowsTable :rows="doc.checks" :run-id="runId" label="Все строки отчёта" />
+      <ExecutionCard v-for="ex in doc.executions" :key="ex.execution_id" :ex="ex" :rows="null" :doc="doc" :run-id="runId" :return-to="returnTo" />
+      <CheckRowsTable :rows="doc.checks" :run-id="runId" :return-to="returnTo" label="Все строки отчёта" />
     </template>
   </div>
 </template>

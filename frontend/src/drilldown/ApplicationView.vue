@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { ref } from "vue";
 import { api } from "../api/instance";
 import type { ComparisonRow } from "../api/types";
 import AsyncView from "../components/AsyncView.vue";
 import { useApi } from "../composables/useApi";
-import { href } from "../router";
+import { computed, ref } from "vue";
+import { href, safeReturn } from "../router";
 
-const props = defineProps<{ runId: string; appId: string; group: string | null; back: string }>();
+const props = defineProps<{ runId: string; appId: string; group: string | null; back: string; ret?: string | null }>();
+/** Return to where the user came from (checks of a report, group, fact) — same Run only; else the pivot. */
+const backHref = computed(
+  () =>
+    safeReturn(props.ret, props.runId) ??
+    (props.group ? `${href("runs", props.runId, "groups", props.group)}?back=${encodeURIComponent(props.back)}` : href("runs", props.runId, "pivot")),
+);
 const onlyDiff = ref(true);
 const app = useApi(() => `app:${props.runId}:${props.appId}`, () => api.application(props.runId, props.appId));
 const rowsOf = (rows: ComparisonRow[]) => (onlyDiff.value ? rows.filter((r) => Number(r.DIFF_FLAG) === 1) : rows);
@@ -15,8 +21,7 @@ const rowsOf = (rows: ComparisonRow[]) => (onlyDiff.value ? rows.filter((r) => N
 <template>
   <section>
     <p>
-      <a v-if="group" :href="`${href('runs', runId, 'groups', group)}?back=${encodeURIComponent(back)}`">← К заявкам группы</a>
-      <a v-else :href="href('runs', runId, 'pivot')">← К сводной</a>
+      <a :href="backHref">← Назад</a>
     </p>
     <h1>Заявка <code>{{ appId }}</code></h1>
     <AsyncView :value="app" what="Загрузка заявки">

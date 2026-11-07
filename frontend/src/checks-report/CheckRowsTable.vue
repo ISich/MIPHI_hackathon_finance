@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { CheckRow } from "../api/types";
 import ResultBadge from "../components/ResultBadge.vue";
-import { href } from "../router";
+import { appHref } from "../router";
 
-defineProps<{ rows: CheckRow[]; runId: string; label: string }>();
+defineProps<{ rows: CheckRow[]; runId: string; label: string; returnTo: string }>();
 </script>
 
 <template>
@@ -32,7 +32,7 @@ defineProps<{ rows: CheckRow[]; runId: string; label: string }>();
           <td>
             <template v-if="r.APP_IDS.length">
               <span class="muted">{{ r.APP_IDS.length }} пример(ов) из {{ r.CNT }}: </span>
-              <a v-for="a in r.APP_IDS" :key="a" :href="href('runs', runId, 'apps', a)" class="app-chip">{{ a }}</a>
+              <a v-for="a in r.APP_IDS" :key="a" :href="appHref(runId, a, returnTo)" class="app-chip">{{ a }}</a>
             </template>
             <span v-else class="muted">—</span>
           </td>

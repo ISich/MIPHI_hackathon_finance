@@ -26,6 +26,18 @@ export function href(...parts: Array<string | number>): string {
   return "#/" + parts.map((p) => encodeURIComponent(String(p))).join("/");
 }
 
+/** Application card link carrying the place to return to (same Run only; validated by safeReturn). */
+export function appHref(runId: string, appId: string, ret: string): string {
+  return `${href("runs", runId, "apps", appId)}?ret=${encodeURIComponent(ret)}`;
+}
+
+/** A return target is accepted only as an in-app hash route of the same Run. */
+export function safeReturn(ret: string | null | undefined, runId: string): string | null {
+  if (!ret) return null;
+  const prefix = href("runs", runId) + "/";
+  return ret.startsWith(prefix) && !/[\s<>"]/.test(ret) ? ret : null;
+}
+
 export function navigate(to: string): void {
   window.location.hash = to.replace(/^#/, "");
 }

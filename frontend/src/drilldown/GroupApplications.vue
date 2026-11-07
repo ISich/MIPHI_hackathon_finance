@@ -3,7 +3,7 @@ import { computed, ref, watch } from "vue";
 import { api } from "../api/instance";
 import AsyncView from "../components/AsyncView.vue";
 import { useApi } from "../composables/useApi";
-import { href } from "../router";
+import { appHref, href } from "../router";
 
 const PAGE_SIZE = 50;
 const props = defineProps<{ runId: string; group: string; back: string }>();
@@ -14,8 +14,8 @@ const page = useApi(
   () => api.groupApplications(props.runId, props.group, offset.value, PAGE_SIZE),
 );
 const backHref = computed(() => `${href("runs", props.runId, "pivot")}${props.back ? `?${props.back}` : ""}`);
-const appHref = (app: string) =>
-  `${href("runs", props.runId, "apps", app)}?group=${encodeURIComponent(props.group)}&back=${encodeURIComponent(props.back)}`;
+const self = computed(() => `${href("runs", props.runId, "groups", props.group)}?back=${encodeURIComponent(props.back)}`);
+const toApp = (app: string) => appHref(props.runId, app, self.value);
 </script>
 
 <template>
@@ -31,7 +31,7 @@ const appHref = (app: string) =>
           </p>
           <p v-if="p.items.length === 0" class="muted">На этой странице заявок нет.</p>
           <ul class="app-list">
-            <li v-for="app in p.items" :key="app"><a :href="appHref(app)">{{ app }}</a></li>
+            <li v-for="app in p.items" :key="app"><a :href="toApp(app)">{{ app }}</a></li>
           </ul>
           <div class="pager">
             <button type="button" :disabled="offset === 0" @click="offset = Math.max(0, offset - PAGE_SIZE)">← Назад</button>

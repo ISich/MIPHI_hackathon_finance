@@ -23,6 +23,7 @@ const { default: GroupApplications } = await import("../drilldown/GroupApplicati
 const { default: FactApplications } = await import("../drilldown/FactApplications.vue");
 const { default: App } = await import("../App.vue");
 const { default: RunsList } = await import("../run-monitor/RunsList.vue");
+const { default: ApplicationView } = await import("../drilldown/ApplicationView.vue");
 
 const mnt = <P extends Record<string, unknown>>(c: Parameters<typeof mount>[0], props?: P) =>
   mount(c, { props, attachTo: document.body.appendChild(document.createElement("div")) });
@@ -204,6 +205,50 @@ describe("Runs list with responses slower than the poll interval", () => {
     const listCalls = holder.calls.filter((c) => c.url === "/api/runs").length;
     expect(listCalls).toBeLessThan(80); // no request storm
     w.unmount();
+  });
+});
+
+describe("Report context survives the application card", () => {
+  const retOf = (a: Element) => new URLSearchParams(a.getAttribute("href")!.split("?")[1]).get("ret");
+
+  it("application links in checks carry the way back to the same report", async () => {
+    const run = await completedRun();
+    const w = mnt(ChecksView, { run, reportId: run.initial_report_id });
+    const a = await waitFor(() => {
+      const x = document.querySelector("a.app-chip");
+      if (!x) throw new Error("no app link");
+      return x;
+    });
+    expect(retOf(a)).toBe(`#/runs/${run.run_id}/checks?report=${run.initial_report_id}`);
+    w.unmount();
+  });
+
+  it("application links of a fact drill-down carry the way back incl. report", async () => {
+    const run = await completedRun();
+    const group = JSON.stringify({ PATH: "decision.result.decision", SOURCE: "AFTER", VALUE_ADJUSTED: "APPROVE", DIFF_FLAG: 0, ARRAY_KEY: "" });
+    const w = mnt(FactApplications, { runId: run.run_id, group, cnt: 3, report: "rep_X" });
+    const a = await waitFor(() => {
+      const x = document.querySelector(".app-list a");
+      if (!x) throw new Error("no app link");
+      return x;
+    });
+    const ret = retOf(a)!;
+    expect(ret.startsWith(`#/runs/${run.run_id}/fact-apps?`)).toBe(true);
+    expect(new URLSearchParams(ret.split("?")[1]).get("report")).toBe("rep_X");
+    w.unmount();
+  });
+
+  it("the application card returns to the given place of the same Run only", async () => {
+    const run = await completedRun();
+    const ret = `#/runs/${run.run_id}/checks?report=rep_X`;
+    const w = mnt(ApplicationView, { runId: run.run_id, appId: "MOCK-0001", group: null, back: "", ret });
+    expect(link(w, /^←/).getAttribute("href")).toBe(ret);
+    w.unmount();
+    for (const bad of ["#/runs/other_run/checks", "javascript:alert(1)", "https://evil.example/"]) {
+      const w2 = mnt(ApplicationView, { runId: run.run_id, appId: "MOCK-0001", group: null, back: "", ret: bad });
+      expect(link(w2, /^←/).getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot`);
+      w2.unmount();
+    }
   });
 });
 

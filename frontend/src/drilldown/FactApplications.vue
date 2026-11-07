@@ -3,12 +3,17 @@ import { computed } from "vue";
 import { api } from "../api/instance";
 import AsyncView from "../components/AsyncView.vue";
 import { useApi } from "../composables/useApi";
-import { href } from "../router";
+import { appHref, href } from "../router";
 
 const MAX_FACT_APPS = 10000;
 
 /** Drill-down from a D4 base fact (fallback mode): POST /pivot-facts/applications. */
 const props = defineProps<{ runId: string; group: string; cnt: number | null; report?: string | null }>();
+/** This page's own location (incl. report), so the application card can return here. */
+const self = computed(
+  () =>
+    `${href("runs", props.runId, "fact-apps")}?g=${encodeURIComponent(props.group)}${props.cnt !== null ? `&cnt=${props.cnt}` : ""}${props.report ? `&report=${encodeURIComponent(props.report)}` : ""}`,
+);
 const backHref = computed(() => href("runs", props.runId, "pivot") + (props.report ? `?report=${encodeURIComponent(props.report)}` : ""));
 const parsed = computed<Record<string, unknown> | null>(() => {
   try {
@@ -45,7 +50,7 @@ const page = useApi(
             <template v-else>; всего: {{ p.total }}</template>
           </p>
           <ul class="app-list">
-            <li v-for="app in p.items" :key="app"><a :href="href('runs', runId, 'apps', app)">{{ app }}</a></li>
+            <li v-for="app in p.items" :key="app"><a :href="appHref(runId, app, self)">{{ app }}</a></li>
           </ul>
         </div>
       </template>

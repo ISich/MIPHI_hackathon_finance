@@ -4,7 +4,7 @@ import type { CheckExecution, CheckRow, ReportChecks } from "../api/types";
 import ExecBadge from "../components/ExecBadge.vue";
 import CheckRowsTable from "./CheckRowsTable.vue";
 
-const props = defineProps<{ ex: CheckExecution; rows: CheckRow[] | null; doc: ReportChecks; runId: string }>();
+const props = defineProps<{ ex: CheckExecution; rows: CheckRow[] | null; doc: ReportChecks; runId: string; returnTo: string }>();
 const ok = computed(() => props.ex.execution_status === "SUCCEEDED");
 const diags = computed(() => props.doc.diagnostics.filter((d) => d.check === (props.ex.check_id ?? props.ex.slot) || d.check === props.ex.slot));
 </script>
@@ -28,7 +28,7 @@ const diags = computed(() => props.doc.diagnostics.filter((d) => d.check === (pr
     </div>
     <template v-else-if="rows !== null">
       <p v-if="rows.length === 0" class="muted">Исполнена успешно, 0 строк результата (это не PASS).</p>
-      <CheckRowsTable v-else :rows="rows" :run-id="runId" :label="`Результаты ${ex.check_id ?? ex.slot}`" />
+      <CheckRowsTable v-else :rows="rows" :run-id="runId" :return-to="returnTo" :label="`Результаты ${ex.check_id ?? ex.slot}`" />
     </template>
   </article>
 </template>
