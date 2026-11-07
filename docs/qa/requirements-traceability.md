@@ -1,12 +1,17 @@
 # Матрица трассировки: требования → тесты → статус
 
-Ночь 07.11.2026, night-qa. Проверялся **актуальный код**, не документы:
+Ночь 07.11.2026, night-qa. Проверялся **актуальный код**, не документы. Статусы ниже относятся **только** к этому сочетанию SHA (прогон 11:35 МСК, после исправлений по Codex CR):
 
+- QA-ветка: `test/contracts-night` @ `373f074` (+ последующий docs-коммит);
 - ядро D1 + D4: `origin/SomeShit` @ `496d8cdabfe215ae1c6a740d964df9189382196b` (pinned в `requirements-qa.txt`);
-- backend D2: рабочая копия backend-night (`feat/backend-night`, **незакоммиченные** файлы `backend/`), запущенная локально на 127.0.0.1 (оба режима: `builtin-only`, `trusted-local`). Снимок кода меняется — статусы относятся к прогону, указанному в `QA_RESULT.md`;
+- backend D2: `feat/backend-night` @ **`9546f5d`**, read-only снимок через `git archive`, запущенный на 127.0.0.1 в обоих режимах (`builtin-only`, `trusted-local`). Живая рабочая копия backend-night в момент прогона содержала незакоммиченный код (новый pivot) — она **не** проверялась.
+
+На другом SHA backend или ядра статусы нужно получить заново.
 - UI (D3) **не проверялся** — всё, что требует браузера, помечено NOT VERIFIED.
 
 Источник ID — `docs/PRD.md` (ветка `docs/implementation-foundation`, 3731ae3). Связь «задание → FR» взята из `night-orchestration/docs/requirements-traceability.md`.
+
+DISC-05 (вложенные параметры) **отозван**: в реальном жизненном цикле `run_checks` утечки нет (CR #9). Добавлен API-DISC-05.
 
 Статусы:
 
@@ -38,7 +43,7 @@
 | FR-014 | Журнал этапов: время, объём, обработчик, переход к коду | H `test_stage_start_events_reference_code`, `test_code_snapshot_of_executed_procedure` | PASS | |
 | FR-015 | Не блокирует UI; неизвестный total не выдаётся за % | H `test_not_ready_before_completion_and_status_stays_responsive` | PASS (API) | Status/health отвечают < 2 с во время Run. UI — NOT VERIFIED |
 | FR-016 | Несколько пользователей, области не смешиваются | H `test_owner_isolation.py` (7), `test_two_sessions_run_concurrently_without_mixing` | PASS (API) | Анонимные серверные сессии; это не IAM |
-| FR-017 | Нет промежуточных KPI | H `test_not_ready_*`, `test_failed_run_report_data_is_not_served_as_success` | PASS | 409 `NOT_READY` / ошибка для отчёта FAILED-запуска |
+| FR-017 | Нет промежуточных KPI | H `test_not_ready_*`, `test_failed_run_report_data_is_not_served_as_success` | PARTIAL | `/summary` во время Run всегда 409 `NOT_READY`. Но `/runs/{id}/checks` отдаёт 200 с отчётом, пока Run ещё CHECKING/FINALIZING (API-DISC-05) |
 | FR-018 | Подмена процедуры/check без пересборки | H `test_example_procedures_run_in_every_slot`, `test_new_check_joins_original_five_in_new_common_report` | PASS (trusted-local) | |
 | FR-019 | Исключения по умолчанию, видимы и изменяемы | C `test_ac04_exclusions_on_and_off`; H xfail `test_exclusions_editable_with_builtin_normalize` | PARTIAL | В ядре работает; через API изменить можно только своей normalize-процедурой (trusted-local) (API-DISC-04) |
 | FR-020 | Три режима массивов | C `test_ac05_*` (3), `test_unconfigured_array_and_duplicate_identity_fail_loudly` | PASS | Режим value покрыт тестами самого ядра (TEACHING) |
@@ -81,7 +86,7 @@
 | AC-13 | H `test_user_code.py` | PASS (API, trusted-local); UI — NOT VERIFIED |
 | AC-14 | C `test_check_runner_contract.py`; H `test_check_outcomes.py` | PASS (backend); D4: APP_IDS вне Run не отклоняются (DISC-08) |
 | AC-15 | C/H HTML-тесты | PARTIAL (ссылка да; Run ID в тексте нет; file:// в браузере NOT VERIFIED) |
-| AC-16 | H `test_not_ready_*`, `test_stage_start_events_*`, `test_config_and_code_snapshot_*` | PASS (API) |
+| AC-16 | H `test_not_ready_*`, `test_stage_start_events_*`, `test_config_and_code_snapshot_*` | PASS (API); API-DISC-05 для `/checks` до COMPLETED |
 | AC-17 | H `test_owner_isolation.py` | PASS (API); UI — NOT VERIFIED; Python-изоляция — NOT VERIFIED |
 | AC-18 | H `test_config_and_code_snapshot_*`, `test_summary_comes_from_real_core` | PARTIAL (сверка с CLI; повтор «один в один» по строкам не сравнивался) |
 | AC-19 | — | NOT VERIFIED |
@@ -95,7 +100,10 @@
 |---|---|---|
 | health / ready / openapi, все маршруты api.md в OpenAPI | H `test_system.py` | PASS |
 | Единый error envelope, request_id, без эха ввода | H `test_unknown_route_*`, `test_validation_error_*` | PASS |
-| Path traversal / symlink / имена загрузок / path-параметры | H `test_path_traversal.py` | PASS |
+| Path traversal / symlink на валидный внешний набор (с положительным контролем) / имена загрузок с проверкой ФС / path-параметры | H `test_path_traversal.py` | PASS |
+| Политика исполнения с canary: хранение/загрузка/правка не исполняют код; 4 слота, checks в Run, check-only → 403 `CUSTOM_EXECUTION_DISABLED` без canary | H `test_execution_policy.py` | PASS (builtin-only); положительный контроль canary — trusted-local |
+| Подмена владельца заголовком (одинаковое значение у двух сессий), ссылки на чужие dataset/процедуры/checks | H `test_owner_isolation.py` | PASS |
+| Сила тестов: мутационные selftests и лаунчеры | `selftest/` (14) | PASS |
 | Idempotency-Key: повтор = тот же Run, другой body = 409 | H `test_idempotent_replay_and_key_reuse` | PASS |
 | Перезапуск сервера посреди Run | R `restart/test_restart_persistence.py` | PASS (FAILED/RUN_INTERRUPTED) |
 | Run без checks помечен NO_CHECKS_SELECTED | H `test_technical_run_without_checks_is_marked` | PASS |
