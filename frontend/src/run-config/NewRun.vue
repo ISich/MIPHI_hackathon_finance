@@ -43,12 +43,22 @@ function toggleCheck(id: string, on: boolean) {
   else next.delete(id);
   checks.value = next;
 }
+/**
+ * Submission needs successfully loaded prerequisites: the selected check set is
+ * derived from /scripts, so submitting before it loads (or after it failed)
+ * would silently send checks: [] and disable the server's default checks.
+ */
+const prerequisitesReady = computed(() =>
+  mode.value === "saved"
+    ? configs.data !== undefined && !configs.error
+    : datasets.data !== undefined && !datasets.error && scripts.data !== undefined && !scripts.error,
+);
 const lastRev = (d: Dataset) => d.revisions[d.revisions.length - 1];
 const noConfigs = (d: Configuration[]) => d.length === 0;
 const noDatasets = (d: Dataset[]) => d.length === 0;
 
 async function submit() {
-  if (busy.value) return;
+  if (busy.value || !prerequisitesReady.value) return;
   error.value = null;
   busy.value = true;
   try {
@@ -150,7 +160,7 @@ async function submit() {
       </template>
 
       <ErrorView v-if="error" :error="error" />
-      <button type="submit" class="primary" :disabled="busy">{{ busy ? "Запуск…" : "Сохранить конфигурацию и запустить" }}</button>
+      <button type="submit" class="primary" :disabled="busy || !prerequisitesReady">{{ busy ? "Запуск…" : "Сохранить конфигурацию и запустить" }}</button>
     </form>
   </section>
 </template>

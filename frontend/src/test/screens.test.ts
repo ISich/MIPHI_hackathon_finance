@@ -161,6 +161,7 @@ describe("New check", () => {
       return t;
     });
     await typeInto(editor, "CHECK = {}");
+    await waitFor(() => expect(button(w, "Сохранить и запустить проверки").disabled).toBe(false));
     await click(button(w, "Сохранить и запустить проверки"));
     await waitFor(() => expect(window.location.hash).toMatch(/checks\?report=rep_/), 3000);
     const newReport = decodeURIComponent(window.location.hash.split("report=")[1]!);
@@ -181,6 +182,7 @@ describe("New check", () => {
     const file = new File(["def run(m, p=None):\n    return []\n\nCHECK = {'id': 'x', 'label': 'x', 'params': {}, 'entrypoint': run}\n"], "my_check.py", { type: "text/x-python" });
     await upload(input, file);
     await waitFor(() => expect(byTestId(w, "script-source").textContent).toContain("my_check.py"));
+    await waitFor(() => expect(button(w, "Сохранить и запустить проверки").disabled).toBe(false));
     await click(button(w, "Сохранить и запустить проверки"));
     await waitFor(() => expect(window.location.hash).toMatch(/checks\?report=/), 3000);
     const up = holder.calls.find((c) => c.url === "/api/scripts/upload")!;
@@ -264,6 +266,60 @@ describe("New run form", () => {
     form.dispatchEvent(new Event("submit", { cancelable: true }));
     await waitFor(() => expect(window.location.hash).toMatch(/^#\/runs\/run_/));
     expect(holder.calls.filter((c) => c.url === "/api/runs" && c.init?.method === "POST")).toHaveLength(1);
+    w.unmount();
+  });
+});
+
+describe("Prerequisite loads gate submission (no silent empty check sets)", () => {
+  const wrap = (rule: (url: string) => Promise<Response | null> | null) => {
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => (await rule(url)) ?? inner(url, init);
+  };
+  const posts = (path: string) => holder.calls.filter((c) => c.url === path && c.init?.method === "POST");
+
+  it("NewRun: cannot submit while /scripts is still loading (would send checks: [] and disable server defaults)", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    wrap((url) => (url.startsWith("/api/scripts") ? gate.then(() => null) : null));
+    const w = mnt(NewRun);
+    await waitFor(() => expect(select(w, "Набор данных").options.length).toBeGreaterThan(1));
+    await choose(select(w, "Набор данных"), "ds_mock_examples");
+    expect(button(w, /Сохранить конфигурацию и запустить/).disabled).toBe(true);
+    document.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(posts("/api/configurations")).toHaveLength(0);
+    release();
+    await waitFor(() => expect(button(w, /Сохранить конфигурацию и запустить/).disabled).toBe(false));
+    w.unmount();
+  });
+
+  it("NewRun: a failed /scripts load is shown and blocks submission", async () => {
+    wrap((url) => (url.startsWith("/api/scripts") ? Promise.resolve(new Response(JSON.stringify({ code: "INTERNAL_ERROR", message: "boom", details: {}, request_id: "r" }), { status: 500 })) : null));
+    const w = mnt(NewRun);
+    await waitFor(() => expect(document.querySelector('[data-error-code="INTERNAL_ERROR"]')).not.toBeNull());
+    await choose(select(w, "Набор данных"), "ds_mock_examples");
+    expect(button(w, /Сохранить конфигурацию и запустить/).disabled).toBe(true);
+    document.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(posts("/api/configurations")).toHaveLength(0);
+    w.unmount();
+  });
+
+  it("NewCheck: with 'include existing' on, a failed configuration load is shown and blocks the check-run", async () => {
+    resetMock({ customExecution: true });
+    const run = await completedRun();
+    wrap((url) => (url.startsWith("/api/configurations/") ? Promise.resolve(new Response(JSON.stringify({ code: "INTERNAL_ERROR", message: "cfg boom", details: {}, request_id: "r" }), { status: 500 })) : null));
+    const w = mnt(NewCheck, { run });
+    await waitFor(() => expect(document.querySelector('[data-error-code="INTERNAL_ERROR"]')?.textContent).toContain("cfg boom"));
+    await waitFor(() => expect(document.querySelector<HTMLTextAreaElement>("textarea.code")!.value).toContain("CHECK"));
+    expect(button(w, "Сохранить и запустить проверки").disabled).toBe(true);
+    await click(button(w, "Сохранить и запустить проверки"));
+    expect(posts("/api/scripts")).toHaveLength(0);
+    expect(holder.calls.some((c) => c.url.endsWith("/check-runs"))).toBe(false);
+    // explicitly opting out of the original checks is allowed
+    const include = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find((i) => i.parentElement!.textContent!.includes("исходные проверки"))!;
+    include.click();
+    await waitFor(() => expect(button(w, "Сохранить и запустить проверки").disabled).toBe(false));
     w.unmount();
   });
 });

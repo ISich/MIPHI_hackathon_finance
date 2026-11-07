@@ -32,6 +32,12 @@ let crKey: { scriptId: string; checks: string; key: string } | null = null;
 let alive = true;
 onBeforeUnmount(() => (alive = false));
 
+/**
+ * With "include existing" the new report must contain the Run's original checks;
+ * if the configuration is not loaded (pending or failed) we refuse to submit
+ * instead of silently dropping them.
+ */
+const configReady = computed(() => !includeExisting.value || (config.data !== undefined && !config.error));
 const checkKind = computed(() => kinds.data?.find((k) => k.kind === "check"));
 const text = computed(() => code.value ?? checkKind.value?.template ?? "");
 
@@ -45,6 +51,7 @@ function onFile(f: File) {
 }
 
 async function submit() {
+  if (phase.value !== "edit" || !configReady.value) return;
   error.value = null;
   phase.value = "saving";
   try {
@@ -117,6 +124,10 @@ async function submit() {
         config.data ? ` (${config.data.checks.length})` : ""
       }}
     </label>
+    <template v-if="includeExisting && config.error">
+      <p class="muted">Не удалось загрузить конфигурацию Run — исходные проверки неизвестны, запуск заблокирован (можно снять галочку выше).</p>
+      <ErrorView :error="config.error" :on-retry="config.reload" />
+    </template>
     <ErrorView v-if="error" :error="error" />
     <p v-if="saved && error" class="muted">
       Скрипт уже сохранён: <a :href="href('scripts', saved.script.script_id)">{{ saved.script.name }}</a> (rev {{ saved.script.revision }}).
@@ -124,7 +135,7 @@ async function submit() {
     <p v-if="phase === 'running'" role="status">
       Проверки исполняются на сервере… CheckRun <code>{{ checkRun?.check_run_id }}</code>: {{ checkRun?.status ?? "QUEUED" }}
     </p>
-    <button type="button" class="primary" :disabled="phase !== 'edit' || !text.trim() || !name.trim()" @click="submit">
+    <button type="button" class="primary" :disabled="phase !== 'edit' || !configReady || !text.trim() || !name.trim()" @click="submit">
       {{ phase === "saving" ? "Сохранение…" : "Сохранить и запустить проверки" }}
     </button>
   </div>
