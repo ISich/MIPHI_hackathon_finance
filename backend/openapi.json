@@ -836,19 +836,6 @@
     "title": "Execution",
     "type": "object"
    },
-   "HTTPValidationError": {
-    "properties": {
-     "detail": {
-      "items": {
-       "$ref": "#/components/schemas/ValidationError"
-      },
-      "title": "Detail",
-      "type": "array"
-     }
-    },
-    "title": "HTTPValidationError",
-    "type": "object"
-   },
    "PivotDrillDown": {
     "additionalProperties": false,
     "properties": {
@@ -1569,46 +1556,6 @@
     },
     "title": "SlotRef",
     "type": "object"
-   },
-   "ValidationError": {
-    "properties": {
-     "ctx": {
-      "title": "Context",
-      "type": "object"
-     },
-     "input": {
-      "title": "Input"
-     },
-     "loc": {
-      "items": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "integer"
-        }
-       ]
-      },
-      "title": "Location",
-      "type": "array"
-     },
-     "msg": {
-      "title": "Message",
-      "type": "string"
-     },
-     "type": {
-      "title": "Error Type",
-      "type": "string"
-     }
-    },
-    "required": [
-     "loc",
-     "msg",
-     "type"
-    ],
-    "title": "ValidationError",
-    "type": "object"
    }
   }
  },
@@ -1702,7 +1649,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Get Check Run",
@@ -1803,7 +1750,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Check Run Code",
@@ -1917,7 +1864,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Create Configuration",
@@ -2009,7 +1956,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Get Configuration",
@@ -2123,7 +2070,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Create Dataset",
@@ -2236,7 +2183,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Get Dataset",
@@ -2328,7 +2275,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Rescan files; adds a new revision if the fingerprint changed",
@@ -2420,7 +2367,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Get Report",
@@ -2512,7 +2459,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Report Checks",
@@ -2548,7 +2495,7 @@
      },
      "400": {
       "content": {
-       "text/html": {
+       "application/json": {
         "schema": {
          "$ref": "#/components/schemas/ErrorBody"
         }
@@ -2558,7 +2505,7 @@
      },
      "403": {
       "content": {
-       "text/html": {
+       "application/json": {
         "schema": {
          "$ref": "#/components/schemas/ErrorBody"
         }
@@ -2568,7 +2515,7 @@
      },
      "404": {
       "content": {
-       "text/html": {
+       "application/json": {
         "schema": {
          "$ref": "#/components/schemas/ErrorBody"
         }
@@ -2578,7 +2525,7 @@
      },
      "409": {
       "content": {
-       "text/html": {
+       "application/json": {
         "schema": {
          "$ref": "#/components/schemas/ErrorBody"
         }
@@ -2588,7 +2535,7 @@
      },
      "413": {
       "content": {
-       "text/html": {
+       "application/json": {
         "schema": {
          "$ref": "#/components/schemas/ErrorBody"
         }
@@ -2598,13 +2545,13 @@
      },
      "422": {
       "content": {
-       "text/html": {
+       "application/json": {
         "schema": {
          "$ref": "#/components/schemas/ErrorBody"
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "HTML snapshot rendered by D4 decision_diff.html_report for this exact report",
@@ -2656,11 +2603,11 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+         "$ref": "#/components/schemas/ErrorBody"
         }
        }
       },
-      "description": "Validation Error"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "List Runs",
@@ -2769,7 +2716,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Accept a Run (snapshots code/params now); executed asynchronously by the worker",
@@ -2861,7 +2808,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Get Run",
@@ -2964,7 +2911,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Segment row and comparison attributes of one application (D4 DuckDBMart.application)",
@@ -3056,7 +3003,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Run Artifacts",
@@ -3155,7 +3102,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Download Artifact",
@@ -3275,7 +3222,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Check-only execution on the finished data revision; creates new check_run_id + report_id",
@@ -3367,7 +3314,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Checks of the run's INITIAL report (never the latest)",
@@ -3468,7 +3415,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Code+params snapshot actually executed (slot: normalize|compare|segments|aggregate|check-NN)",
@@ -3583,7 +3530,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Run Events",
@@ -3620,11 +3567,11 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+         "$ref": "#/components/schemas/ErrorBody"
         }
        }
       },
-      "description": "Validation Error"
+      "description": "VALIDATION_ERROR envelope"
      },
      "501": {
       "content": {
@@ -3662,11 +3609,11 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+         "$ref": "#/components/schemas/ErrorBody"
         }
        }
       },
-      "description": "Validation Error"
+      "description": "VALIDATION_ERROR envelope"
      },
      "501": {
       "content": {
@@ -3793,7 +3740,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Page of base pivot facts (D4 DuckDBMart.pivot). CNT must not be summed across groups.",
@@ -3897,7 +3844,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Drill-down: APP_IDs of a pivot group (D4 DuckDBMart.pivot_app_ids; page only, no full total)",
@@ -3989,7 +3936,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Run Reports",
@@ -4083,7 +4030,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Computed summary of a COMPLETED run (409 NOT_READY before)",
@@ -4157,11 +4104,11 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
+         "$ref": "#/components/schemas/ErrorBody"
         }
        }
       },
-      "description": "Validation Error"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "List Scripts",
@@ -4250,7 +4197,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Create a workspace script from editor text",
@@ -4341,7 +4288,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Create a script from an uploaded .py file (source=file)",
@@ -4433,7 +4380,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Get Script",
@@ -4533,7 +4480,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Edit workspace text/params (new revision; runs already started keep their snapshot)",
@@ -4635,7 +4582,7 @@
         }
        }
       },
-      "description": "Unprocessable Entity"
+      "description": "VALIDATION_ERROR envelope"
      }
     },
     "summary": "Replace Script File",

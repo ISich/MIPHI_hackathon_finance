@@ -180,4 +180,39 @@ def create_app() -> FastAPI:
     from .api import router
     app.include_router(router)
     app.add_middleware(BodyLimitMiddleware, max_code_bytes=settings.max_code_bytes)  # outermost
+    _install_openapi(app)
     return app
+
+
+def _install_openapi(app: FastAPI) -> None:
+    """Make documented errors match the wire: every non-2xx /api response is the JSON ErrorBody."""
+    from fastapi.openapi.utils import get_openapi
+
+    from .models import ErrorBody
+    ref = {"$ref": "#/components/schemas/ErrorBody"}
+
+    def build():
+        if app.openapi_schema:
+            return app.openapi_schema
+        spec = get_openapi(title=app.title, version=app.version, description=app.description, routes=app.routes)
+        for path, ops in spec.get("paths", {}).items():
+            if not path.startswith("/api/"):
+                continue
+            for op in ops.values():
+                responses = op.setdefault("responses", {})
+                if op.get("parameters") or op.get("requestBody"):
+                    responses.setdefault("422", {"description": "Validation error"})
+                for status, resp in responses.items():
+                    if status.startswith("2"):
+                        continue
+                    resp["content"] = {"application/json": {"schema": ref}}
+                    if status == "422":
+                        resp["description"] = "VALIDATION_ERROR envelope"
+        schemas = spec.setdefault("components", {}).setdefault("schemas", {})
+        for name in ("HTTPValidationError", "ValidationError"):
+            schemas.pop(name, None)
+        schemas.setdefault("ErrorBody", ErrorBody.model_json_schema())
+        app.openapi_schema = spec
+        return spec
+
+    app.openapi = build
