@@ -11,7 +11,15 @@ from fastapi.responses import JSONResponse
 from . import errors, sessions
 from .db import Database
 from .readiness import readiness
-from .settings import load_settings
+from .settings import LOOPBACK_HOSTS, load_settings, split_host
+
+
+def _is_loopback(addr: str) -> bool:
+    import ipaddress
+    try:
+        return ipaddress.ip_address(addr).is_loopback
+    except ValueError:
+        return False
 
 log = logging.getLogger("dd_backend")
 
@@ -68,6 +76,25 @@ def create_app() -> FastAPI:
         if not (0 < len(request_id) <= 64 and request_id.replace("-", "").isalnum()):
             request_id = secrets.token_hex(8)
         request.state.request_id = request_id
+
+        def reject(status: int, code: str, message: str, details: dict | None = None):
+            resp = errors.envelope(request, status, code, message, details)
+            resp.headers["x-request-id"] = request_id
+            return resp
+
+        # Anti DNS-rebinding: only configured Host names (loopback by default) reach the app.
+        host = split_host(request.headers.get("host", ""))
+        if host not in settings.allowed_hosts:
+            return reject(400, "HOST_NOT_ALLOWED", "Host header is not allowed (DD_ALLOWED_HOSTS)")
+        if settings.execution_mode == "trusted-local" and not _is_loopback(request.client.host if request.client else ""):
+            return reject(403, "REMOTE_CLIENT_NOT_ALLOWED", "trusted-local mode serves loopback clients only")
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("origin")
+            same = f"{request.url.scheme}://{request.headers.get('host', '').lower()}"
+            if origin is not None and origin.lower() != same and origin.lower() not in settings.allowed_origins:
+                return reject(403, "ORIGIN_NOT_ALLOWED", "Cross-origin request rejected (DD_ALLOWED_ORIGINS)")
+            if origin is None and request.headers.get("sec-fetch-site") == "cross-site":
+                return reject(403, "ORIGIN_NOT_ALLOWED", "Cross-site request rejected")
         length = request.headers.get("content-length")
         limit = settings.max_code_bytes + 64 * 1024 if "multipart" in request.headers.get("content-type", "") else MAX_JSON_BODY
         if length is not None and length.isdigit() and int(length) > limit:

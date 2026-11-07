@@ -1,5 +1,5 @@
 """Slice E: anonymous server-side sessions and owner scope on every route."""
-from fastapi.testclient import TestClient
+from conftest import peer
 
 from conftest import wait_run
 from helpers import config, demo_dataset, idem, start_run
@@ -10,7 +10,7 @@ def test_session_cookie_is_httponly_samesite_and_random(client):
     cookie = r.headers["set-cookie"]
     assert "dd_session=" in cookie and "HttpOnly" in cookie and "samesite=lax" in cookie.lower()
     assert "Secure" not in cookie  # local HTTP mode (DD_COOKIE_SECURE=0) is explicit
-    other = TestClient(client.app)
+    other = peer(client.app)
     c2 = other.get("/api/session").headers["set-cookie"]
     assert c2.split(";")[0] != cookie.split(";")[0]
     assert len(cookie.split(";")[0].split("=", 1)[1]) >= 40
@@ -21,7 +21,7 @@ def test_session_cookie_is_httponly_samesite_and_random(client):
 def test_forged_cookie_and_owner_header_grant_nothing(client):
     ds = demo_dataset(client)
     cfg = config(client, ds["dataset_id"], checks=[])
-    stranger = TestClient(client.app, cookies={"dd_session": "forged-token"})
+    stranger = peer(client.app, cookies={"dd_session": "forged-token"})
     r = stranger.get(f"/api/configurations/{cfg['config_id']}", headers={"x-owner-id": "anything"})
     assert r.status_code == 404
     issued = r.headers["set-cookie"].split(";")[0]
@@ -30,7 +30,7 @@ def test_forged_cookie_and_owner_header_grant_nothing(client):
 
 def test_two_sessions_cannot_read_each_others_entities(client, env):
     a = client
-    b = TestClient(a.app)
+    b = peer(a.app)
     ds = demo_dataset(a)
     script = a.post("/api/scripts", json={"kind": "check", "name": "mine", "code": "CHECK = {}\n"}).json()
     cfg = config(a, ds["dataset_id"])
@@ -77,7 +77,7 @@ def test_two_sessions_cannot_read_each_others_entities(client, env):
 
 
 def test_idempotency_keys_are_scoped_per_owner(client):
-    a, b = client, TestClient(client.app)
+    a, b = client, peer(client.app)
     key = {"Idempotency-Key": "same-key"}
     ra = start_run(a, config(a, demo_dataset(a)["dataset_id"], checks=[])["config_id"], key).json()
     rb = start_run(b, config(b, demo_dataset(b)["dataset_id"], checks=[])["config_id"], key).json()

@@ -48,6 +48,25 @@ def _roots(raw: str) -> dict[str, Path]:
     return roots
 
 
+LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+
+
+def split_host(value: str) -> str:
+    """'Host' header -> lowercase host without port (IPv6 kept in brackets)."""
+    value = value.strip().lower()
+    if value.startswith("["):
+        return value[: value.find("]") + 1] if "]" in value else value
+    return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+
+
+def _origin(url: str) -> str:
+    from urllib.parse import urlsplit
+    parts = urlsplit(url.strip())
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise SettingsError(f"Invalid origin: {url!r}")
+    return f"{parts.scheme}://{parts.netloc.lower()}"
+
+
 def default_core_dir() -> Path:
     sha = (BACKEND_DIR / "CORE_COMMIT").read_text().strip()
     return BACKEND_DIR / ".core" / sha
@@ -71,6 +90,8 @@ class Settings:
     report_ui_base: str
     bind_host: str
     expected_core_commit: str = field(default="")
+    allowed_hosts: frozenset = field(default=frozenset())
+    allowed_origins: frozenset = field(default=frozenset())
 
     @property
     def db_path(self) -> Path:
@@ -94,7 +115,19 @@ def load_settings() -> Settings:
     mode = os.environ.get("DD_EXECUTION_MODE", "builtin-only").strip()
     if mode not in EXECUTION_MODES:
         raise SettingsError(f"DD_EXECUTION_MODE must be one of {EXECUTION_MODES}")
+    hosts_raw = os.environ.get("DD_ALLOWED_HOSTS", "127.0.0.1,localhost,::1")
+    allowed_hosts = frozenset(split_host(h) if h.strip() not in ("::1",) else "::1"
+                              for h in hosts_raw.split(",") if h.strip())
+    allowed_hosts = allowed_hosts | ({"[::1]"} if "::1" in allowed_hosts else set())
+    if mode == "trusted-local" and not allowed_hosts <= LOOPBACK_NAMES:
+        raise SettingsError("trusted-local execution allows only loopback DD_ALLOWED_HOSTS "
+                            f"({sorted(LOOPBACK_NAMES)}), got {sorted(allowed_hosts)}")
+    ui_base = os.environ.get("DD_REPORT_UI_BASE", "http://127.0.0.1:5173")
+    origins_raw = os.environ.get("DD_ALLOWED_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173")
+    allowed_origins = frozenset({_origin(o) for o in origins_raw.split(",") if o.strip()} | {_origin(ui_base)})
     return Settings(
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
         home=home.resolve(),
         data_roots=_roots(roots_raw),
         checks_dir=Path(os.environ.get("DD_CHECKS_DIR") or core / "checks").expanduser(),
@@ -108,7 +141,7 @@ def load_settings() -> Settings:
         max_memory_mb=_int("DD_MAX_MEMORY_MB", 6144),
         worker_lease_seconds=_int("DD_WORKER_LEASE_SECONDS", 15),
         cookie_secure=_bool("DD_COOKIE_SECURE", False),
-        report_ui_base=os.environ.get("DD_REPORT_UI_BASE", "http://127.0.0.1:5173"),
+        report_ui_base=ui_base,
         bind_host=os.environ.get("DD_BIND_HOST", "127.0.0.1"),
         expected_core_commit=(BACKEND_DIR / "CORE_COMMIT").read_text().strip(),
     )

@@ -34,9 +34,17 @@ def env(tmp_path, monkeypatch):
     return {"home": home, "data": data, "core": core}
 
 
+LOOPBACK = {"base_url": "http://127.0.0.1", "client": ("127.0.0.1", 50000)}
+
+
 def make_client(**kwargs) -> TestClient:
     from dd_backend.app import create_app
-    return TestClient(create_app(), **kwargs)
+    return TestClient(create_app(), **{**LOOPBACK, **kwargs})
+
+
+def peer(app, **kwargs) -> TestClient:
+    """Another browser session against the same app (no lifespan => no second worker)."""
+    return TestClient(app, **{**LOOPBACK, **kwargs})
 
 
 @pytest.fixture
