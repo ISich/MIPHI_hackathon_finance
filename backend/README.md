@@ -148,6 +148,8 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 
 ## API overview
 
+`GET /api/datasets/{dataset_id}/table?side=before|after` exposes a read-only table of the current source JSON files for the UI table workspace. Access follows existing dataset ownership/shared rules. The response includes `dataset_id`, `side`, `columns`, and scalar `rows`; nested objects use JSON Pointer paths, nested arrays remain JSON text, and `_file` identifies the source. A root array yields one row per element. The endpoint rejects invalid/non-finite JSON and returns 413 rather than a partial snapshot when the complete selection exceeds 10 MiB, 20,000 rows or 200 columns. It reuses allowlisted path validation and bounded regular-file reads. Editing the resulting browser copy does not write to the dataset or create a run/revision.
+
 Envelope for every error: `{code, message, details, request_id}`; `x-request-id` header on every response.
 Codes: 202 accepted run/check-run · 400 `IDEMPOTENCY_KEY_REQUIRED` · 403 `CUSTOM_EXECUTION_DISABLED` /
 read-only · 404 `NOT_FOUND` (also for other owners' IDs — existence is not leaked) · 409 `NOT_READY` /

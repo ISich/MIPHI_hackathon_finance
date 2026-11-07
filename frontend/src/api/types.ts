@@ -6,6 +6,8 @@
 
 export type Iso = string;
 
+export interface DatasetTable { dataset_id: string; side: "before" | "after"; columns: string[]; rows: Array<Array<string | number | boolean | null>> }
+
 export interface AccountUser {
   username: string;
   display_name: string;

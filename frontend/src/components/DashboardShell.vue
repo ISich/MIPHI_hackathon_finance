@@ -21,6 +21,7 @@ const sidebar = ref<HTMLElement>();
 const navigation = [
   { label: "Обзор", description: "Активность и показатели запусков", icon: "home", to: href("overview"), section: "overview" },
   { label: "Запуски", description: "История расчётов и отчёты", icon: "runs", to: href("runs"), section: "runs" },
+  { label: "Таблицы и сводные", description: "CSV, Excel, dataset и конструктор сводных", icon: "table", to: href("datasets"), section: "datasets" },
   { label: "Новый запуск", description: "Выбрать данные и конфигурацию", icon: "plus", to: href("runs", "new"), section: "new" },
   { label: "Рабочая область", description: "Процедуры и Python-проверки", icon: "code", to: href("scripts"), section: "scripts" },
 ];

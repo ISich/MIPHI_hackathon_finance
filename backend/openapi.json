@@ -611,6 +611,63 @@
     "title": "DatasetRevision",
     "type": "object"
    },
+   "DatasetTable": {
+    "properties": {
+     "columns": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Columns",
+      "type": "array"
+     },
+     "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "rows": {
+      "items": {
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "integer"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "boolean"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "type": "array"
+      },
+      "title": "Rows",
+      "type": "array"
+     },
+     "side": {
+      "enum": [
+       "before",
+       "after"
+      ],
+      "title": "Side",
+      "type": "string"
+     }
+    },
+    "required": [
+     "dataset_id",
+     "side",
+     "columns",
+     "rows"
+    ],
+    "title": "DatasetTable",
+    "type": "object"
+   },
    "ErrorBody": {
     "properties": {
      "code": {
@@ -2536,6 +2593,112 @@
      }
     },
     "summary": "Rescan files; adds a new revision if the fingerprint changed",
+    "tags": [
+     "datasets"
+    ]
+   }
+  },
+  "/api/datasets/{dataset_id}/table": {
+   "get": {
+    "operationId": "get_dataset_table_api_datasets__dataset_id__table_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "dataset_id",
+      "required": true,
+      "schema": {
+       "title": "Dataset Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "side",
+      "required": false,
+      "schema": {
+       "default": "after",
+       "enum": [
+        "before",
+        "after"
+       ],
+       "title": "Side",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DatasetTable"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Content Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Read a complete bounded table from current BEFORE/AFTER JSON files",
     "tags": [
      "datasets"
     ]

@@ -15,6 +15,7 @@ import { href, navigate, useRoute } from "./router";
 import NewRun from "./run-config/NewRun.vue";
 import RunPage from "./run-monitor/RunPage.vue";
 import RunsList from "./run-monitor/RunsList.vue";
+import DatasetsPage from "./datasets/DatasetsPage.vue";
 
 const route = useRoute();
 const user = ref<AccountUser | null>(null);
@@ -77,6 +78,7 @@ const view = computed(() => {
   const [section, id, sub, subId] = route.value.parts;
   const q = route.value.query;
   if (section === "overview") return { name: "overview" as const };
+  if (section === "datasets") return { name: "datasets" as const };
   if (section === "runs" && id === "new") return { name: "new-run" as const };
   if (section === "runs" && id && sub === "groups" && subId) return { name: "group" as const, runId: id, group: subId, back: q.get("back") ?? "" };
   if (section === "runs" && id && sub === "fact-apps")
@@ -104,6 +106,7 @@ const view = computed(() => {
   <DashboardShell v-else :key="user.username" :user="user" @sign-out="signOut">
     <div v-if="sessionError" class="state state-error" role="alert">{{ sessionError }}</div>
     <NewRun v-if="view.name === 'new-run'" />
+    <DatasetsPage v-else-if="view.name === 'datasets'" :owner="user.username" />
     <GroupApplications v-else-if="view.name === 'group'" :key="view.group" :run-id="view.runId" :group="view.group" :back="view.back" />
     <FactApplications v-else-if="view.name === 'fact-apps'" :run-id="view.runId" :group="view.group" :cnt="view.cnt" :report="view.report" />
     <ApplicationView v-else-if="view.name === 'app'" :run-id="view.runId" :app-id="view.appId" :group="view.group" :back="view.back" />

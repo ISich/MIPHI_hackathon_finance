@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Optional
+from typing import Literal
 
 from fastapi import APIRouter, File, Form, Header, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -11,6 +12,7 @@ from . import auth, models as m, sessions
 from .errors import ApiError, not_found
 from .registry import SCRIPT_KINDS
 from .runs import RunService
+from .dataset_tables import dataset_table
 
 router = APIRouter(prefix="/api")
 
@@ -89,6 +91,13 @@ def rescan_dataset(dataset_id: str, request: Request):
     if ds["shared"]:
         raise ApiError(403, "DATASET_READ_ONLY", "Shared datasets are rescanned by the operator CLI")
     return reg.rescan_dataset(owner, dataset_id)
+
+
+@router.get("/datasets/{dataset_id}/table", tags=["datasets"], response_model=m.DatasetTable, responses=ERRORS,
+            summary="Read a complete bounded table from current BEFORE/AFTER JSON files")
+def get_dataset_table(dataset_id: str, request: Request, side: Literal["before", "after"] = "after"):
+    owner, reg, _ = _ctx(request)
+    return dataset_table(reg, owner, dataset_id, side)
 
 
 # ------------------------------------------------------------------ scripts

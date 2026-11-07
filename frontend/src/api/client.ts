@@ -11,6 +11,7 @@ import type {
   CreateRunRequest,
   CreateScriptRequest,
   Dataset,
+  DatasetTable,
   ErrorEnvelope,
   EventsPage,
   PivotFactsPage,
@@ -249,6 +250,10 @@ export class ApiClient {
   // ------------------------------------------------------------ registry
   async datasets(): Promise<Dataset[]> {
     return listOf<Dataset>(await this.request("GET", "/api/datasets"));
+  }
+
+  async datasetTable(id: string, side: "before" | "after"): Promise<DatasetTable> {
+    return this.request("GET", `/api/datasets/${enc(id)}/table?side=${side}`) as Promise<DatasetTable>;
   }
   async scripts(kind?: ScriptKindName): Promise<Script[]> {
     const q = kind ? `?kind=${enc(kind)}` : "";

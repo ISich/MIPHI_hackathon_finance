@@ -485,6 +485,16 @@ export function createMockFetch(opts: MockOptions) {
       return json(200, mockSession());
     }
     if (p === "/api/datasets" && method === "GET") return json(200, datasets);
+    if (/^\/api\/datasets\/[^/]+\/table$/.test(p) && method === "GET") {
+      const datasetId = decodeURIComponent(p.split("/")[3]!);
+      if (!datasets.some(d => d.dataset_id === datasetId)) return err(404, "NOT_FOUND", "dataset not found");
+      const side = url.searchParams.get("side") === "before" ? "before" : "after";
+      return json(200, { dataset_id: datasetId, side, columns: ["APP_ID", "Регион", "Продукт", "Решение", "Сумма"], rows: [
+        ["MOCK-1001", "Москва", "Кредит", "Одобрено", side === "before" ? 400000 : 450000],
+        ["MOCK-1002", "Казань", "Ипотека", "Одобрено", 6200000],
+        ["MOCK-1003", "Москва", "Кредит", side === "before" ? "Отказ" : "Одобрено", 700000],
+      ] });
+    }
     if (p === "/api/script-kinds") return json(200, kinds);
     if (p === "/api/scripts" && method === "GET") {
       const kind = url.searchParams.get("kind");

@@ -2,6 +2,12 @@
 withDefaults(defineProps<{ name: string; size?: number }>(), { size: 20 });
 
 const paths: Record<string, string> = {
+  table: "M3 8h18 M3 13h18 M3 18h18 M8 3v18 M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1",
+  upload: "M12 16V3 m-5 5 5-5 5 5 M4 16v5h16v-5",
+  download: "M12 3v13 m-5-5 5 5 5-5 M4 17v4h16v-4",
+  trash: "M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7",
+  database: "M20 6c0 2-3.6 3-8 3S4 8 4 6s3.6-3 8-3 8 1 8 3z M4 6v12c0 2 3.6 3 8 3s8-1 8-3V6 M4 12c0 2 3.6 3 8 3s8-1 8-3",
+  sliders: "M4 7h7 M15 7h5 M4 17h3 M11 17h9 M11 4v6 M7 14v6",
   logout: "M9 4H4v16h5 M10 12h11 m-4-4 4 4-4 4",
   grid: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
   home: "m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z",

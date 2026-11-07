@@ -129,6 +129,13 @@ class DataRoots(BaseModel):
     roots: list[str]
 
 
+class DatasetTable(BaseModel):
+    dataset_id: str
+    side: Literal["before", "after"]
+    columns: list[str]
+    rows: list[list[str | int | float | bool | None]]
+
+
 class Script(BaseModel):
     script_id: str
     kind: str
