@@ -28,7 +28,7 @@ EXAMPLES_DIR="$(dirname "$CHECKS_DIR")/examples"
 
 export PYTHONDONTWRITEBYTECODE=1
 export DD_HOME="$WORK/home" DD_CHECKS_DIR="$CHECKS_DIR" DD_EXECUTION_MODE="$MODE" DD_EMBEDDED_WORKER=1
-export DD_DATA_ROOTS="examples=$EXAMPLES_DIR,qa=$WORK/fixtures" DD_BIND_HOST=127.0.0.1
+export DD_DATA_ROOTS="examples=$EXAMPLES_DIR,qa=$WORK/fixtures,outside=$WORK/outside" DD_BIND_HOST=127.0.0.1
 export DD_RUN_TIMEOUT_SECONDS="${DD_RUN_TIMEOUT_SECONDS:-120}" DD_CHECK_TIMEOUT_SECONDS="${DD_CHECK_TIMEOUT_SECONDS:-5}"
 
 # exec: the background PID is the server itself, so cleanup kills exactly this process.
@@ -53,6 +53,6 @@ REPORTED="$(curl -fsS "http://127.0.0.1:$PORT/api/session" | "$QA_PY" -c 'import
 [ "$REPORTED" = "$MODE" ] || { echo "server reports execution_mode=$REPORTED, expected $MODE" >&2; exit 1; }
 echo "backend pid=$PID mode=$MODE home=$DD_HOME"
 # QA_FORCE_EXPECTED_MODE is a self-test hook only (tests/selftest): it must make the suite fail.
-QA_BASE_URL="http://127.0.0.1:$PORT" QA_FIXTURE_ROOT=qa QA_FIXTURE_DIR="$WORK/fixtures" \
+QA_BASE_URL="http://127.0.0.1:$PORT" QA_FIXTURE_ROOT=qa QA_FIXTURE_DIR="$WORK/fixtures" QA_OUTSIDE_ROOT=outside \
 QA_EXECUTION_MODE="${QA_FORCE_EXPECTED_MODE:-$MODE}" QA_SERVER_HOME="$DD_HOME" \
   "$QA_PY" -m pytest "${@:-$ROOT/tests/http}"
