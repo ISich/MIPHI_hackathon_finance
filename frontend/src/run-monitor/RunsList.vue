@@ -11,7 +11,7 @@ const runs = useApi(() => "runs", () => api.runs());
 usePolling(
   () => !!runs.data?.some((r) => r.status === "QUEUED" || r.status === "RUNNING"),
   () => timing.listPollMs,
-  async () => runs.reload(),
+  () => runs.reload(), // awaited: no new list request while the previous one is in flight
 );
 const isEmpty = (d: Run[]) => d.length === 0;
 </script>

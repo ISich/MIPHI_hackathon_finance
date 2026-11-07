@@ -22,6 +22,7 @@ const { default: NewRun } = await import("../run-config/NewRun.vue");
 const { default: GroupApplications } = await import("../drilldown/GroupApplications.vue");
 const { default: FactApplications } = await import("../drilldown/FactApplications.vue");
 const { default: App } = await import("../App.vue");
+const { default: RunsList } = await import("../run-monitor/RunsList.vue");
 
 const mnt = <P extends Record<string, unknown>>(c: Parameters<typeof mount>[0], props?: P) =>
   mount(c, { props, attachTo: document.body.appendChild(document.createElement("div")) });
@@ -182,6 +183,26 @@ describe("Later CheckRun events reach an already open monitor", () => {
     await waitFor(() => expect(text(w)).toContain("Check late check executed (MOCK)"), 2000);
     const link = [...document.querySelectorAll("summary")].find((x) => x.textContent === "код check-06");
     expect(link).toBeTruthy();
+    w.unmount();
+  });
+});
+
+describe("Runs list with responses slower than the poll interval", () => {
+  it("still updates (a reload is not started while the previous one is in flight)", async () => {
+    const cfg = await testApi.createConfiguration({ name: "t", dataset_id: "ds_mock_examples", slots: {} });
+    const queued = await testApi.createRun({ configuration_id: cfg.config_id }, "k-list");
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => {
+      if (url === "/api/runs") await new Promise((r) => setTimeout(r, 40)); // >> listPollMs (5 ms)
+      return inner(url, init);
+    };
+    const w = mnt(RunsList);
+    await waitFor(() => expect(table(w, "Список запусков").textContent).toContain("QUEUED"));
+    let r = queued;
+    for (let i = 0; i < 20 && r.status !== "COMPLETED"; i++) r = await testApi.run(queued.run_id);
+    await waitFor(() => expect(table(w, "Список запусков").textContent).toContain("COMPLETED"), 2000);
+    const listCalls = holder.calls.filter((c) => c.url === "/api/runs").length;
+    expect(listCalls).toBeLessThan(80); // no request storm
     w.unmount();
   });
 });

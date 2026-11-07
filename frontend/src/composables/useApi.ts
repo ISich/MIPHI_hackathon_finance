@@ -1,10 +1,11 @@
-import { ref, shallowReactive, watch, type WatchSource } from "vue";
+import { nextTick, ref, shallowReactive, watch, type WatchSource } from "vue";
 
 export interface Loadable<T> {
   readonly data: T | undefined;
   readonly error: unknown;
   readonly loading: boolean;
-  reload: () => void;
+  /** Starts a new load; resolves when it has settled (success or error). */
+  reload: () => Promise<void>;
 }
 
 /**
@@ -14,13 +15,18 @@ export interface Loadable<T> {
  * key null = nothing to load.
  */
 export function useApi<T>(key: WatchSource<string | null>, fn: () => Promise<T>): Loadable<T> {
-  const state = shallowReactive<{ data: T | undefined; error: unknown; loading: boolean; reload: () => void }>({
+  const nonce = ref(0);
+  let settled: Promise<void> = Promise.resolve();
+  const state = shallowReactive<{ data: T | undefined; error: unknown; loading: boolean; reload: () => Promise<void> }>({
     data: undefined,
     error: undefined,
     loading: false,
-    reload: () => nonce.value++,
+    reload: async () => {
+      nonce.value++;
+      await nextTick(); // the watcher below has started the new load
+      await settled;
+    },
   });
-  const nonce = ref(0);
   let currentKey: string | null = null;
   watch(
     [key, nonce],
@@ -35,7 +41,7 @@ export function useApi<T>(key: WatchSource<string | null>, fn: () => Promise<T>)
       let alive = true;
       onCleanup(() => (alive = false));
       state.loading = true;
-      fn().then(
+      settled = fn().then(
         (data) => {
           if (!alive) return;
           state.data = data;
