@@ -10,9 +10,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODE="${1:-builtin-only}"; shift || true
 BACKEND_DIR="${BACKEND_DIR:?set BACKEND_DIR to the backend checkout (contains dd_backend/)}"
-BACKEND_PY="${BACKEND_PY:-$BACKEND_DIR/.venv/bin/python}"
+# Resolve every user-supplied path NOW: the server is started from a temporary cwd (CR #1).
+BACKEND_DIR="$(cd "$BACKEND_DIR" && pwd)"
+BACKEND_PY="$(realpath -s "${BACKEND_PY:-$BACKEND_DIR/.venv/bin/python}")"
 PORT="${QA_PORT:-18765}"
-QA_PY="${QA_PY:-$ROOT/.venv/bin/python}"
+QA_PY="$(realpath -s "${QA_PY:-$ROOT/.venv/bin/python}")"
+[ -x "$BACKEND_PY" ] || { echo "backend python not found: $BACKEND_PY" >&2; exit 2; }
+case "$MODE" in builtin-only|trusted-local) ;; *) echo "unknown mode $MODE" >&2; exit 2;; esac
+# Refuse a busy port: otherwise an unrelated server could answer /health and be tested instead (CR #2).
+if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
+  echo "port $PORT on 127.0.0.1 is already in use; refusing to test an unknown server (set QA_PORT)" >&2; exit 3
+fi
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/qa-http-XXXXXX")"
 CHECKS_DIR="$("$ROOT/scripts/fetch_core_checks.sh")"
 EXAMPLES_DIR="$(dirname "$CHECKS_DIR")/examples"
@@ -29,11 +37,22 @@ export DD_RUN_TIMEOUT_SECONDS="${DD_RUN_TIMEOUT_SECONDS:-120}" DD_CHECK_TIMEOUT_
 PID=$!
 cleanup() { kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; echo "server log: $WORK/server.log"; }
 trap cleanup EXIT
+UP=0
 for _ in $(seq 1 100); do
-  curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break
-  kill -0 "$PID" 2>/dev/null || { cat "$WORK/server.log"; exit 1; }
+  kill -0 "$PID" 2>/dev/null || { cat "$WORK/server.log" >&2; echo "backend exited during startup" >&2; exit 1; }
+  if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then UP=1; break; fi
   sleep 0.2
 done
+[ "$UP" = 1 ] || { echo "backend did not become healthy" >&2; exit 1; }
+# Identity: the launched process must still be alive and must own the listening socket on PORT (CR #2).
+kill -0 "$PID" 2>/dev/null || { cat "$WORK/server.log" >&2; echo "launched backend died; port $PORT answered by another process" >&2; exit 1; }
+if ! ss -ltnpH "sport = :$PORT" 2>/dev/null | grep -q "pid=$PID,"; then
+  echo "port $PORT is not owned by launched pid $PID; refusing to test another server" >&2; exit 1
+fi
+REPORTED="$(curl -fsS "http://127.0.0.1:$PORT/api/session" | "$QA_PY" -c 'import json,sys; print(json.load(sys.stdin)["execution_mode"])')"
+[ "$REPORTED" = "$MODE" ] || { echo "server reports execution_mode=$REPORTED, expected $MODE" >&2; exit 1; }
 echo "backend pid=$PID mode=$MODE home=$DD_HOME"
-QA_BASE_URL="http://127.0.0.1:$PORT" QA_FIXTURE_ROOT=qa QA_FIXTURE_DIR="$WORK/fixtures" QA_EXECUTION_MODE="$MODE" \
+# QA_FORCE_EXPECTED_MODE is a self-test hook only (tests/selftest): it must make the suite fail.
+QA_BASE_URL="http://127.0.0.1:$PORT" QA_FIXTURE_ROOT=qa QA_FIXTURE_DIR="$WORK/fixtures" \
+QA_EXECUTION_MODE="${QA_FORCE_EXPECTED_MODE:-$MODE}" QA_SERVER_HOME="$DD_HOME" \
   "$QA_PY" -m pytest "${@:-$ROOT/tests/http}"

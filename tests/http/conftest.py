@@ -69,6 +69,19 @@ def execution_mode(api_a) -> str:
     return api_a.session().get("execution_mode", "unknown")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _expected_execution_mode(request):
+    """CR #2: if the runner declares the mode it launched, the server must report exactly that mode."""
+    expected = os.environ.get("QA_EXECUTION_MODE")
+    if not expected or not BASE_URL:
+        return
+    api = request.getfixturevalue("api_a")
+    reported = api.session().get("execution_mode")
+    if reported != expected:
+        pytest.fail(f"execution_mode mismatch: server reports {reported!r}, QA_EXECUTION_MODE={expected!r}",
+                    pytrace=False)
+
+
 @pytest.fixture(scope="session")
 def completed_example_run(api_a, examples_root):
     """One real Run on the core example pair, all built-in checks; shared by several tests."""
