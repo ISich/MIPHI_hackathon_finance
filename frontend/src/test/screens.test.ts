@@ -24,6 +24,7 @@ const { default: FactApplications } = await import("../drilldown/FactApplication
 const { default: App } = await import("../App.vue");
 const { default: RunsList } = await import("../run-monitor/RunsList.vue");
 const { default: ApplicationView } = await import("../drilldown/ApplicationView.vue");
+const { default: NewScript } = await import("../editor/NewScript.vue");
 
 const mnt = <P extends Record<string, unknown>>(c: Parameters<typeof mount>[0], props?: P) =>
   mount(c, { props, attachTo: document.body.appendChild(document.createElement("div")) });
@@ -269,6 +270,44 @@ describe("Base-facts fallback names what it could not apply", () => {
     const w = mnt(PivotView, { run, query: new URLSearchParams("") });
     await waitFor(() => table(w, "Базовые факты"));
     expect(document.querySelector('[data-testid="unapplied-layout"]')).toBeNull();
+    w.unmount();
+  });
+});
+
+describe("Copying a script requires its source", () => {
+  const scriptPosts = () => holder.calls.filter((c) => (c.url === "/api/scripts" || c.url === "/api/scripts/upload") && c.init?.method === "POST");
+
+  it("a failed source load is shown and saving is blocked (no unrelated template saved)", async () => {
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) =>
+      url === "/api/scripts/scr_missing"
+        ? new Response(JSON.stringify({ code: "NOT_FOUND", message: "script not found", details: {}, request_id: "r" }), { status: 404 })
+        : inner(url, init);
+    const w = mnt(NewScript, { fromId: "scr_missing" });
+    await waitFor(() => expect(document.querySelector('[data-error-code="NOT_FOUND"]')).not.toBeNull());
+    await waitFor(() => button(w, "Сохранить snapshot"));
+    expect(button(w, "Сохранить snapshot").disabled).toBe(true);
+    await click(button(w, "Сохранить snapshot"));
+    expect(scriptPosts()).toHaveLength(0);
+    w.unmount();
+  });
+
+  it("while the source is loading, the editor does not offer the default template for saving", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => {
+      if (url === "/api/scripts/scr_check_attribute_new_loss") await gate;
+      return inner(url, init);
+    };
+    const w = mnt(NewScript, { fromId: "scr_check_attribute_new_loss" });
+    await waitFor(() => button(w, "Сохранить snapshot"));
+    const nameInput = [...document.querySelectorAll("label")].find((l) => l.textContent!.trim().startsWith("Название"))!.querySelector("input")!;
+    await typeInto(nameInput, "my copy"); // a name alone must not allow saving the default template
+    expect(button(w, "Сохранить snapshot").disabled).toBe(true);
+    release();
+    await waitFor(() => expect(document.querySelector<HTMLTextAreaElement>("textarea.code")!.value).toContain("MOCK builtin source of check_attribute_new_loss"));
+    expect(button(w, "Сохранить snapshot").disabled).toBe(false);
     w.unmount();
   });
 });

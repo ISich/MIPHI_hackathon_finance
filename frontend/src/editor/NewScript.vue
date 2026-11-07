@@ -5,6 +5,7 @@ import { api } from "../api/instance";
 import type { Script, ScriptKindName } from "../api/types";
 import AsyncView from "../components/AsyncView.vue";
 import ErrorView from "../components/ErrorView.vue";
+import LoadingView from "../components/LoadingView.vue";
 import ExecutionModeNote from "../components/ExecutionModeNote.vue";
 import PythonEditor from "../components/PythonEditor.vue";
 import { useApi } from "../composables/useApi";
@@ -21,6 +22,8 @@ const error = ref<unknown>(null);
 const saved = shallowRef<Script | null>(null);
 const busy = ref(false);
 
+/** Copying requires the source script: never fall back to an unrelated default template. */
+const sourceReady = computed(() => !props.fromId || (from.data !== undefined && !from.error));
 const effKind = computed<ScriptKindName>(() => kind.value ?? from.data?.kind ?? "check");
 const spec = computed(() => kinds.data?.find((k) => k.kind === effKind.value));
 const text = computed(() => code.value ?? from.data?.code ?? spec.value?.template ?? "");
@@ -40,6 +43,7 @@ function onFile(f: File) {
   if (!name.value) name.value = f.name.replace(/\.py$/, "");
 }
 async function save() {
+  if (busy.value || !sourceReady.value) return;
   busy.value = true;
   error.value = null;
   try {
@@ -57,6 +61,11 @@ async function save() {
     <p><a :href="href('scripts')">← Скрипты</a></p>
     <h1>Новый скрипт</h1>
     <ExecutionModeNote />
+    <template v-if="fromId && from.error">
+      <p class="muted">Не удалось загрузить исходный скрипт для копии — сохранение заблокировано.</p>
+      <ErrorView :error="from.error" :on-retry="from.reload" />
+    </template>
+    <LoadingView v-else-if="fromId && from.data === undefined" what="Загрузка исходного скрипта" />
     <AsyncView :value="kinds" what="Загрузка контрактов">
       <template #default="{ data: list }">
         <div class="form">
@@ -95,7 +104,7 @@ async function save() {
             }}
             <a :href="href('runs', 'new')">Новый запуск →</a>
           </div>
-          <button type="button" class="primary" :disabled="busy || !text.trim() || !effName.trim()" @click="save">
+          <button type="button" class="primary" :disabled="busy || !sourceReady || !text.trim() || !effName.trim()" @click="save">
             {{ busy ? "Сохранение…" : "Сохранить snapshot" }}
           </button>
         </div>
