@@ -76,19 +76,65 @@ def test_initial_report_is_stable_and_check_only_creates_new_identity(api_a, com
     assert rep["status"] == "PUBLISHED" and rep["check_run_id"] == cr["check_run_id"]
 
 
+class _HtmlProbe:
+    """Parse anchors (href + visible text) and visible text nodes; attribute values are not 'text'."""
+
+    def __init__(self, html: str):
+        from html.parser import HTMLParser
+
+        probe = self
+        self.anchors, self.text = [], []
+
+        class P(HTMLParser):
+            current = None
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "a":
+                    self.current = {"href": dict(attrs).get("href", ""), "text": ""}
+
+            def handle_endtag(self, tag):
+                if tag == "a" and self.current is not None:
+                    probe.anchors.append(self.current)
+                    self.current = None
+
+            def handle_data(self, data):
+                probe.text.append(data)
+                if self.current is not None:
+                    self.current["text"] += data
+
+        P().feed(html)
+        self.visible = " ".join(self.text)
+
+
 def test_report_html_links_to_this_run(api_a, completed_example_run):
+    """FR-010 / api.md (CR5 #6): the interactive-report anchor's TARGET is an absolute URL whose path is exactly
+    /runs/{run_id}/reports/{report_id} of this report; per-application links point to the same report page."""
+    from urllib.parse import parse_qs, urlsplit
+
     run = completed_example_run["final"]
-    html = api_a.get(f"/api/reports/{run['initial_report_id']}/checks.html")
-    assert html.status_code == 200 and html.headers["content-type"].startswith("text/html")
-    assert f"/runs/{run['run_id']}" in html.text
-    assert 'href="http' in html.text  # absolute link (FR-010)
+    r = api_a.get(f"/api/reports/{run['initial_report_id']}/checks.html")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    probe = _HtmlProbe(r.text)
+    main = [a for a in probe.anchors if "интерактивный" in a["text"]]
+    assert len(main) == 1, probe.anchors[:3]
+    target = urlsplit(main[0]["href"])
+    expected_path = f"/runs/{run['run_id']}/reports/{run['initial_report_id']}"
+    assert target.scheme in ("http", "https") and target.netloc, main[0]
+    assert target.path.endswith(expected_path) and not target.query, main[0]
+    app_links = [urlsplit(a["href"]) for a in probe.anchors if "app_id=" in a["href"]]
+    assert app_links, "report of the example run must link its APP_IDS"
+    for link in app_links:
+        assert (link.scheme, link.netloc, link.path) == (target.scheme, target.netloc, target.path), link
+        assert parse_qs(link.query)["app_id"][0] in probe.visible
 
 
 def test_report_html_names_report_id(api_a, completed_example_run):
+    """PRD §9: the exported HTML itself (visible text, not only the link URL) identifies Run and report."""
     run = completed_example_run["final"]
     r = api_a.get(f"/api/reports/{run['initial_report_id']}/checks.html")
     assert r.status_code == 200, r.text[:300]
-    link_free = r.text.replace(f"/runs/{run['run_id']}/reports/{run['initial_report_id']}", "")
-    known_defect(run["initial_report_id"] not in link_free and "Автоматические проверки" in r.text,
-                 "DISC-10 (D4 renderer): HTML body names neither report_id nor Run ID; only the link URL carries them")
-    assert run["initial_report_id"] in link_free and run["run_id"] in link_free
+    probe = _HtmlProbe(r.text)
+    assert "Автоматические проверки" in probe.visible
+    known_defect(run["initial_report_id"] not in probe.visible and run["run_id"] not in probe.visible,
+                 "DISC-10 (D4 renderer): HTML visible text names neither report_id nor Run ID; only link URLs do")
+    assert run["initial_report_id"] in probe.visible and run["run_id"] in probe.visible
