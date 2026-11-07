@@ -50,13 +50,30 @@ def test_stage_start_events_reference_code(api_a, events_run):
     assert progress and progress[-1]["processed"] == progress[-1]["total"] == 6
 
 
-def test_pivot_rollup_is_explicitly_unavailable_not_empty(api_a, events_run):
-    r = api_a.post(f"/api/runs/{events_run['run']['run_id']}/pivot", {"dimensions": ["PATH"], "filters": {}},
-                   key=None)
-    if r.status_code == 501:
-        assert_envelope(r, 501, "ANALYTICS_UNAVAILABLE")
-    else:
-        assert r.status_code == 200 and r.json().get("cells") is not None
+def test_pivot_cells_carry_locators_and_member_totals(api_a, events_run):
+    """FR-011/012, data.md level 2 on the REAL pivot: every cell has dimensions, a positive CNT and an opaque
+    group_locator; members of a cell return the FULL distinct total (== CNT) independent of page size; a page
+    beyond the end is empty with the same total. Only the documented 501 is a known defect."""
+    run_id = events_run["run"]["run_id"]
+    r = api_a.post(f"/api/runs/{run_id}/pivot",
+                   {"dimensions": ["PATH"], "filters": {"PATH": "characteristics.score_okb"}}, key=None)
+    known_defect(r.status_code == 501 and r.json().get("code") == "ANALYTICS_UNAVAILABLE",
+                 "API-DISC-02: server pivot rollup not implemented (501 ANALYTICS_UNAVAILABLE); FR-011, AC-10")
+    assert r.status_code == 200, r.text[:300]
+    cells = r.json()["items"]
+    assert len(cells) == 1, cells
+    cell = cells[0]
+    assert cell["dimensions"] == {"PATH": "characteristics.score_okb"}, cell
+    assert isinstance(cell["group_locator"], str) and cell["group_locator"]
+    # independent expectation: all 6 applications of the events fixture carry characteristics.score_okb
+    assert cell["cnt"] == 6, cell
+    url = f"/api/runs/{run_id}/groups/{cell['group_locator']}/applications"
+    page = api_a.get(url, params={"limit": 2, "offset": 0}).json()
+    assert page["total"] == 6 and len(page["items"]) == 2, page
+    everything = api_a.get(url, params={"limit": 50, "offset": 0}).json()
+    assert sorted(everything["items"]) == [f"EV0{i}" for i in range(1, 7)] and everything["total"] == 6
+    beyond = api_a.get(url, params={"limit": 2, "offset": 10}).json()
+    assert beyond["items"] == [] and beyond["total"] == 6, beyond
 
 
 def test_pivot_rollup_with_user_layout(api_a, events_run):
