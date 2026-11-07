@@ -3,6 +3,9 @@
 // with what the backend API itself returns, never with constants.
 import { test, expect } from "./guard";
 import type { APIRequestContext, Page } from "@playwright/test";
+import { signIn } from "./login";
+
+test.beforeEach(async ({ page }) => { await signIn(page); });
 
 const TRUSTED = process.env.E2E_TRUSTED === "1";
 

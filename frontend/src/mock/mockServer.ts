@@ -27,6 +27,8 @@ import { PROCEDURE_SLOTS, RUN_STAGES, PIVOT_DIMENSIONS } from "../api/types";
 export interface MockOptions {
   /** Mirrors backend DD_EXECUTION_MODE: false = builtin-only (backend default). */
   customExecution: boolean;
+  /** Persist only the mock sign-in flag between page reloads in the same tab. */
+  persistSession?: boolean;
   /**
    * Current PivotQuery/items wire contract. Explicit false tests old 501 servers.
    */
@@ -172,6 +174,21 @@ interface MockCheckRun extends CheckRun {
 }
 
 export function createMockFetch(opts: MockOptions) {
+  let signedIn = false;
+  const mockUser = { username: "admin", display_name: "Аналитик" };
+  if (opts.persistSession) {
+    try { signedIn = sessionStorage.getItem("mock.signedIn") === "1"; } catch { /* storage may be disabled */ }
+  }
+  function mockSession() {
+    return { authenticated: signedIn, kind: signedIn ? "account" : "anonymous-session", user: signedIn ? mockUser : null,
+      cookie_secure: false, execution_mode: opts.customExecution ? "trusted-local" : "builtin-only" };
+  }
+  function setSignedIn(value: boolean) {
+    signedIn = value;
+    if (opts.persistSession) {
+      try { sessionStorage.setItem("mock.signedIn", value ? "1" : "0"); } catch { /* in-memory fallback */ }
+    }
+  }
   const ticksPerStage = opts.ticksPerStage ?? 1;
   const custom = opts.customExecution;
   let seq = 0;
@@ -456,7 +473,17 @@ export function createMockFetch(opts: MockOptions) {
     const idemKey = headers.get("Idempotency-Key");
 
     if (p === "/ready") return json(200, { ready: true, checks: [], execution_mode: custom ? "trusted-local" : "builtin-only", warnings: ["MOCK backend"] });
-    if (p === "/api/session") return json(200, { authenticated: false, kind: "anonymous-session (MOCK)" });
+    if (p === "/api/session" && method === "GET") return json(200, mockSession());
+    if (p === "/api/auth/login" && method === "POST") {
+      if (String(body?.username ?? "").trim() !== "admin" || body?.password !== "admin12345")
+        return err(401, "INVALID_CREDENTIALS", "Неверный логин или пароль.");
+      setSignedIn(true);
+      return json(200, mockSession());
+    }
+    if (p === "/api/auth/logout" && method === "POST") {
+      setSignedIn(false);
+      return json(200, mockSession());
+    }
     if (p === "/api/datasets" && method === "GET") return json(200, datasets);
     if (p === "/api/script-kinds") return json(200, kinds);
     if (p === "/api/scripts" && method === "GET") {

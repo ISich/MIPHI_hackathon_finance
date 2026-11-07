@@ -20,7 +20,9 @@ const schemas = spec.components?.schemas ?? {};
 // [method, path, response binding]: "Name" = object $ref, "Name[]" = array of $ref, null = free-form/not parsed by schema
 const ROUTES = [
   ["get", "/ready", null],
-  ["get", "/api/session", null],
+  ["get", "/api/session", "Session"],
+  ["post", "/api/auth/login", "Session"],
+  ["post", "/api/auth/logout", "Session"],
   ["get", "/api/datasets", "Dataset[]"],
   ["get", "/api/scripts", "Script[]"],
   ["post", "/api/scripts", "Script"],
@@ -51,6 +53,7 @@ const ROUTES = [
 
 // Request bodies the UI sends: schema binding + the fields the client puts in the body.
 const REQUESTS = {
+  "post /api/auth/login": { schema: "LoginRequest", sends: ["username", "password"] },
   "post /api/runs/{run_id}/pivot": { schema: "PivotQuery", sends: ["dimensions", "filters", "limit", "offset"] },
   "post /api/runs": { schema: "RunCreate", sends: ["configuration_id"] },
   "post /api/configurations": { schema: "ConfigurationCreate", sends: ["name", "dataset_id", "slots", "checks"] },
@@ -63,6 +66,8 @@ const REQUESTS = {
 // Fields the UI reads: type letter + "?" when the UI handles null/absence.
 // s=string i=integer n=number b=boolean a=array o=object
 const FIELDS = {
+  Session: "authenticated:b kind:s user:o? cookie_secure:b execution_mode:s",
+  AccountUser: "username:s display_name:s",
   PivotQuery: "dimensions:a filters:o? limit:i? offset:i?",
   Run: "run_id:s status:s stage:s? substep:s? processed:i? total:i? config_id:s dataset_revision_id:s initial_report_id:s report_status:s? checks_completeness:s? error:o? created_at:s",
   RunPage: "items:a total:i",

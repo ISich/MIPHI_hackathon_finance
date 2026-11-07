@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from . import errors, sessions
+from . import auth, errors, sessions
 from .db import Database
 from .readiness import readiness
 from .settings import LOOPBACK_HOSTS, load_settings, split_host
@@ -109,6 +109,7 @@ def create_app() -> FastAPI:
     settings = load_settings()
     db = Database(settings.db_path)
     db.init()
+    auth.configure(db, settings.allowed_hosts)
     settings.runs_dir.mkdir(parents=True, exist_ok=True)
     settings.scripts_dir.mkdir(parents=True, exist_ok=True)
     signing_key = _signing_key(settings.signing_key_path)
@@ -187,14 +188,18 @@ def create_app() -> FastAPI:
             resp = errors.envelope(request, 413, "PAYLOAD_TOO_LARGE", "Request body too large", {"limit_bytes": limit})
             resp.headers["x-request-id"] = request_id
             return resp
-        new_token = None
+        request.state.new_session_token = None
         if request.url.path.startswith("/api/"):
             owner = sessions.resolve(db, request.cookies.get(sessions.COOKIE_NAME))
             if owner is None:
                 new_token, owner = sessions.create(db)
+                request.state.new_session_token = new_token
             request.state.owner_id = owner
         response = await call_next(request)
         response.headers["x-request-id"] = request_id
+        new_token = request.state.new_session_token
+        if request.url.path.startswith("/api/"):
+            response.headers["cache-control"] = "no-store"
         if new_token is not None:
             response.set_cookie(
                 sessions.COOKIE_NAME, new_token, max_age=sessions.COOKIE_MAX_AGE, httponly=True,

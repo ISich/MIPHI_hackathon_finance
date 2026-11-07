@@ -21,6 +21,24 @@ class ErrorBody(BaseModel):
 
 
 # ------------------------------------------------------------------ requests
+class LoginRequest(Strict):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=256, repr=False)
+
+
+class AccountUser(BaseModel):
+    username: str
+    display_name: str
+
+
+class Session(BaseModel):
+    authenticated: bool
+    kind: Literal["account", "anonymous-session"]
+    user: AccountUser | None
+    cookie_secure: bool
+    execution_mode: str
+
+
 class DatasetCreate(Strict):
     name: str = Field(min_length=1, max_length=120)
     root: str = Field(description="Name of a server-side allowlisted data root (see GET /api/datasets/roots)")

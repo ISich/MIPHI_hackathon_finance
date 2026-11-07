@@ -6,6 +6,19 @@
 
 export type Iso = string;
 
+export interface AccountUser {
+  username: string;
+  display_name: string;
+}
+
+export interface Session {
+  authenticated: boolean;
+  kind: "account" | "anonymous-session";
+  user: AccountUser | null;
+  cookie_secure: boolean;
+  execution_mode: string;
+}
+
 /** Error envelope: {code, message, details, request_id}. */
 export interface ErrorEnvelope {
   code: string;

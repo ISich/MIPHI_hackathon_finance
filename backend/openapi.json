@@ -1,6 +1,24 @@
 {
  "components": {
   "schemas": {
+   "AccountUser": {
+    "properties": {
+     "display_name": {
+      "title": "Display Name",
+      "type": "string"
+     },
+     "username": {
+      "title": "Username",
+      "type": "string"
+     }
+    },
+    "required": [
+     "username",
+     "display_name"
+    ],
+    "title": "AccountUser",
+    "type": "object"
+   },
    "Artifact": {
     "properties": {
      "artifact_id": {
@@ -836,6 +854,29 @@
     "title": "Execution",
     "type": "object"
    },
+   "LoginRequest": {
+    "additionalProperties": false,
+    "properties": {
+     "password": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Password",
+      "type": "string"
+     },
+     "username": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Username",
+      "type": "string"
+     }
+    },
+    "required": [
+     "username",
+     "password"
+    ],
+    "title": "LoginRequest",
+    "type": "object"
+   },
    "PivotDrillDown": {
     "additionalProperties": false,
     "properties": {
@@ -1567,6 +1608,49 @@
     "title": "ScriptUpdate",
     "type": "object"
    },
+   "Session": {
+    "properties": {
+     "authenticated": {
+      "title": "Authenticated",
+      "type": "boolean"
+     },
+     "cookie_secure": {
+      "title": "Cookie Secure",
+      "type": "boolean"
+     },
+     "execution_mode": {
+      "title": "Execution Mode",
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "account",
+       "anonymous-session"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "user": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AccountUser"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "authenticated",
+     "kind",
+     "user",
+     "cookie_secure",
+     "execution_mode"
+    ],
+    "title": "Session",
+    "type": "object"
+   },
    "SlotRef": {
     "additionalProperties": false,
     "properties": {
@@ -1607,6 +1691,138 @@
  },
  "openapi": "3.1.0",
  "paths": {
+  "/api/auth/login": {
+   "post": {
+    "operationId": "login_api_auth_login_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LoginRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Session"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "401": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Unauthorized"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Content Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     },
+     "429": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Too Many Requests"
+     }
+    },
+    "summary": "Login",
+    "tags": [
+     "session"
+    ]
+   }
+  },
+  "/api/auth/logout": {
+   "post": {
+    "operationId": "logout_api_auth_logout_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Session"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Logout",
+    "tags": [
+     "session"
+    ]
+   }
+  },
   "/api/check-runs/{check_run_id}": {
    "get": {
     "operationId": "get_check_run_api_check_runs__check_run_id__get",
@@ -1680,7 +1896,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -1781,7 +1997,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -1895,7 +2111,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -1987,7 +2203,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2101,7 +2317,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2214,7 +2430,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2306,7 +2522,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2398,7 +2614,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2490,7 +2706,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2582,7 +2798,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2747,7 +2963,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2839,7 +3055,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -2942,7 +3158,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3034,7 +3250,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3147,7 +3363,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3267,7 +3483,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3359,7 +3575,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3460,7 +3676,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3575,7 +3791,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3698,7 +3914,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3802,7 +4018,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -3916,7 +4132,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4020,7 +4236,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4112,7 +4328,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4206,7 +4422,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4373,7 +4589,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4464,7 +4680,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4556,7 +4772,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4656,7 +4872,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4758,7 +4974,7 @@
         }
        }
       },
-      "description": "Request Entity Too Large"
+      "description": "Content Too Large"
      },
      "422": {
       "content": {
@@ -4785,16 +5001,14 @@
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "title": "Response Session Api Session Get",
-         "type": "object"
+         "$ref": "#/components/schemas/Session"
         }
        }
       },
       "description": "Successful Response"
      }
     },
-    "summary": "Current anonymous session (cookie is issued automatically)",
+    "summary": "Current account or anonymous session (cookie is issued automatically)",
     "tags": [
      "session"
     ]

@@ -15,6 +15,17 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    owner_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS login_limits (
+    bucket TEXT PRIMARY KEY,
+    failures INTEGER NOT NULL,
+    started_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,

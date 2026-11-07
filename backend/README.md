@@ -66,6 +66,36 @@ Full open dataset (not in this repo; put it under an allowlisted root, e.g. `DD_
     --before RUN-20260827-0001/RESULTS/BEFORE_MASTER --after RUN-20260827-0001/RESULTS/AFTER_BETA
 ```
 
+## Account sign-in
+
+The UI signs in through `POST /api/auth/login` with `{ "username": "admin", "password": "admin12345" }`.
+`GET /api/session` returns `authenticated`, `kind`, `user: { username, display_name } | null`,
+`cookie_secure`, and `execution_mode`. `POST /api/auth/logout` revokes the current token and returns
+a new anonymous session. Session responses are not cached. Cookies remain HttpOnly and SameSite=Lax;
+the server enforces the 30-day session lifetime too.
+
+One basic account is initialized on API startup:
+
+| Variable | Local default | Purpose |
+|---|---|---|
+| `DD_AUTH_USERNAME` | `admin` | Login name |
+| `DD_AUTH_PASSWORD` | `admin12345` | Password, 8–256 characters |
+| `DD_AUTH_DISPLAY_NAME` | `Аналитик` | Name shown in the UI |
+
+The default password is for local development; a private `DD_AUTH_PASSWORD` is required when
+`DD_ALLOWED_HOSTS` includes non-loopback names. Passwords are stored as salted PBKDF2-SHA256 hashes
+(600,000 iterations) in SQLite. Keep the configured password in the server environment across restarts.
+Changing it on restart invalidates existing sessions while preserving the account's data and owner ID.
+Failed logins have a shared persistent limit of 10 attempts per minute. Registration, roles, and password
+recovery are not implemented.
+
+Account runs/scripts belong to a stable owner across browsers and logins. Logging out revokes only
+the current browser's session. The existing anonymous API remains available for compatibility,
+with separate owner-scoped data; sign-in does not migrate anonymous work into the account.
+
+For UI/auth development on macOS, run the API with `DD_EMBEDDED_WORKER=0`; full calculations still
+require a Linux worker. The auth tests can run without it: `python -m pytest tests/test_auth.py -q`.
+
 ## Smoke and tests
 
 ```bash

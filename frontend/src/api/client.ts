@@ -25,6 +25,7 @@ import type {
   ScriptKind,
   ScriptKindName,
   Summary,
+  Session,
   UploadScriptRequest,
 } from "./types";
 
@@ -221,6 +222,22 @@ export class ApiClient {
   }
 
   // ------------------------------------------------------------ system
+  currentSession(): Promise<Session> {
+    // This request itself bootstraps the cookie; do not issue a second session request.
+    return this.raw<Session>("GET", "/api/session").then((session) => {
+      this.session = Promise.resolve();
+      return session;
+    });
+  }
+
+  login(username: string, password: string): Promise<Session> {
+    return this.request("POST", "/api/auth/login", { body: { username, password } });
+  }
+
+  logout(): Promise<Session> {
+    return this.request("POST", "/api/auth/logout");
+  }
+
   ready(): Promise<Readiness> {
     // /ready answers 503 with a plain body (not an error envelope) when not ready.
     return this.request<Readiness>("GET", "/ready").catch((e) => {

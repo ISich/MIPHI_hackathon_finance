@@ -28,24 +28,24 @@ const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?ro
         </div>
         <h2>Типы изменений</h2>
         <p class="muted">Число строк сравнения (атрибутов) по типу, не число заявок.</p>
-        <table class="table" aria-label="Типы изменений">
+        <div class="table-wrap"><table class="table" aria-label="Типы изменений">
           <tbody>
             <tr v-for="(v, k) in d.change_types" :key="k">
               <th>{{ k }}</th>
               <td class="num">{{ v }}</td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
         <template v-if="d.top_paths?.length">
           <h2>Top PATH</h2>
-          <table class="table" aria-label="Top PATH">
+          <div class="table-wrap"><table class="table" aria-label="Top PATH">
             <tbody>
               <tr v-for="t in d.top_paths" :key="t.path">
                 <td><a :href="topHref(t.path)">{{ t.path }}</a></td>
                 <td class="num">{{ t.changed_apps }}</td>
               </tr>
             </tbody>
-          </table>
+          </table></div>
         </template>
         <p v-else class="muted">Top PATH backend пока не отдаёт.</p>
         <h2>Полнота проверок</h2>
@@ -55,7 +55,7 @@ const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?ro
         </p>
         <template v-if="d.artifacts?.length">
           <h2>Артефакты</h2>
-          <table class="table" aria-label="Артефакты">
+          <div class="table-wrap"><table class="table" aria-label="Артефакты">
             <tbody>
               <tr v-for="a in d.artifacts" :key="a.artifact_id">
                 <td>{{ a.kind }}</td>
@@ -64,7 +64,7 @@ const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?ro
                 <td><a :href="a.download">скачать</a></td>
               </tr>
             </tbody>
-          </table>
+          </table></div>
         </template>
       </div>
     </template>

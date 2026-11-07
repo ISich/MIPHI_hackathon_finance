@@ -35,6 +35,9 @@ cd backend && .venv/bin/python -m dd_backend serve --host 127.0.0.1 --port 8000
 
 ## Экраны
 
+Оболочка dashboard восстановлена из `feat/ui-dashboard-reference` (`7e5569e`): боковая навигация, обзор, поиск и фильтры запусков, светлая и тёмная темы. Форма входа использует её компоненты и цветовую схему.
+
+- **Вход** — без входа UI показывает форму на любом маршруте. Локальная базовая запись: логин `admin`, пароль `admin12345`, имя «Аналитик». Вход проверяется сервером; после обновления страницы сессия восстанавливается по HttpOnly cookie. Внизу боковой панели доступны имя пользователя и выход. После входа открывается исходная ссылка, включая ссылку на отчёт.
 - **Запуски** `#/runs` — список Run текущей сессии; автообновление, пока есть активные.
 - **Новый запуск** `#/runs/new` — набор данных, процедура по каждому слоту (встроенная или сохранённый workspace/.py скрипт), проверки → `POST /api/configurations` → `POST /api/runs` с `Idempotency-Key` (повтор той же формы не создаёт дубль Run).
 - **Run** `#/runs/{id}` — мониторинг: status/stage/substep, прогресс (при неизвестном total — неопределённый, без выдуманного %), журнал `events?after=`, код фактически исполненного snapshot по слоту. Вкладки отчёта доступны только после `COMPLETED`.
@@ -46,17 +49,25 @@ cd backend && .venv/bin/python -m dd_backend serve --host 127.0.0.1 --port 8000
 
 Для каждого экрана есть состояния loading / empty / error / not-ready (409) / нет доступа; ответы для ранее выбранного Run отбрасываются (stale), данные выводятся только как текст.
 
+Учётная запись настраивается на backend через `DD_AUTH_USERNAME`, `DD_AUTH_PASSWORD`, `DD_AUTH_DISPLAY_NAME` (см. [backend/README.md](../backend/README.md#account-sign-in)). Запуски и скрипты аккаунта сохраняются между входами и доступны из другого браузера с теми же данными входа. Старые анонимные данные остаются в прежней сессии и автоматически в аккаунт не переносятся. Анонимный API сохранён для совместимости; его владельцы изолированы от аккаунта.
+
+В mock-режиме работают те же локальные данные входа; только признак входа сохраняется в `sessionStorage`, пароль туда не записывается. На macOS можно запустить настоящий API для разработки входа с `DD_EMBEDDED_WORKER=0`; расчёты требуют Linux worker.
+
 ## Тесты
 
 ```bash
 npm run typecheck          # tsc strict
 npm test                   # Vitest + @vue/test-utils: client, router, экраны (на тестовом дубле wire-формата)
 npm run e2e:mock           # Playwright Chromium, desktop + narrow, против MOCK (UI-поведение, не расчёт)
+npm run e2e:mock -- --grep 'sign in, reject'  # форма, неверный пароль, обновление страницы, выход
 
 # реальная интеграция: backend на 127.0.0.1:8000 + dev-сервер UI
 DD_API_TARGET=http://127.0.0.1:8000 npm run dev &
 npm run e2e:real           # PLAYWRIGHT_BASE_URL по умолчанию http://127.0.0.1:5173
 E2E_TRUSTED=1 npm run e2e:real   # только против backend с DD_EXECUTION_MODE=trusted-local на loopback
+# Для проверки только входа (в том числе на macOS без worker):
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 npx playwright test --grep 'sign in, reject'
+# При изменённых данных аккаунта передайте E2E_USERNAME / E2E_PASSWORD.
 
 npm run check:openapi -- http://127.0.0.1:8000/openapi.json   # маршруты/поля клиента есть в OpenAPI
 ```

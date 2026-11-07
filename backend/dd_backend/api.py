@@ -7,7 +7,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, File, Form, Header, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from . import models as m
+from . import auth, models as m, sessions
 from .errors import ApiError, not_found
 from .registry import SCRIPT_KINDS
 from .runs import RunService
@@ -27,11 +27,34 @@ def _ctx(request: Request) -> tuple[str, Any, RunService]:
 
 
 # ------------------------------------------------------------------ session
-@router.get("/session", tags=["session"], summary="Current anonymous session (cookie is issued automatically)")
+@router.get("/session", tags=["session"], response_model=m.Session,
+            summary="Current account or anonymous session (cookie is issued automatically)")
 def session(request: Request) -> dict:
     s = request.app.state.settings
-    return {"authenticated": False, "kind": "anonymous-session",
+    account = auth.user(request.app.state.db, request.state.owner_id)
+    return {"authenticated": account is not None, "kind": "account" if account else "anonymous-session", "user": account,
             "cookie_secure": s.cookie_secure, "execution_mode": s.execution_mode}
+
+
+def _rotate_session(request: Request, owner_id: str | None = None) -> None:
+    old_token = request.state.new_session_token or request.cookies.get(sessions.COOKIE_NAME)
+    token, owner = sessions.create(request.app.state.db, owner_id, revoke_token=old_token)
+    request.state.new_session_token = token
+    request.state.owner_id = owner
+
+
+@router.post("/auth/login", tags=["session"], response_model=m.Session,
+             responses={**ERRORS, 401: {"model": m.ErrorBody}, 429: {"model": m.ErrorBody}})
+def login(body: m.LoginRequest, request: Request):
+    owner = auth.authenticate(request.app.state.db, body.username, body.password)
+    _rotate_session(request, owner)
+    return session(request)
+
+
+@router.post("/auth/logout", tags=["session"], response_model=m.Session)
+def logout(request: Request):
+    _rotate_session(request)
+    return session(request)
 
 
 # ----------------------------------------------------------------- datasets
