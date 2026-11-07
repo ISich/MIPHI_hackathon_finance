@@ -85,3 +85,29 @@ def test_restart_test_accepts_relative_backend_dir():
                           capture_output=True, text=True, timeout=400)
     assert proc.returncode == 0, proc.stdout[-2000:]
     assert "1 passed" in proc.stdout
+
+
+def test_start_backend_refuses_port_answered_by_another_process(tmp_path):
+    """CR2 #5: the Python launcher must not accept /health from an unrelated process on its port."""
+    from support.backend_proc import start_backend
+
+    impostor = ThreadingHTTPServer(("127.0.0.1", 0), _Impostor)
+    port = impostor.server_address[1]
+    threading.Thread(target=impostor.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises((AssertionError, RuntimeError)) as err:
+            backend = start_backend(tmp_path / "home", {}, port=port)
+            backend.stop()  # only reached if the launcher wrongly accepted the impostor
+    finally:
+        impostor.shutdown()
+    assert "port" in str(err.value).lower()
+
+
+def test_start_backend_verifies_execution_mode_and_socket_owner(tmp_path):
+    from support.backend_proc import start_backend
+
+    backend = start_backend(tmp_path / "home", {}, mode="trusted-local")
+    try:
+        assert backend.mode == "trusted-local" and backend.proc.poll() is None
+    finally:
+        backend.stop()
