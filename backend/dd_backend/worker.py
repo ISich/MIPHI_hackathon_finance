@@ -519,11 +519,18 @@ class Worker:
         # No preexec_fn: nothing written in Python runs between fork and exec (threads may hold locks);
         # limits/umask/PDEATHSIG are set by the supervisor itself. Supervision and its timeout start
         # right after this call returns.
-        child = subprocess.Popen(
-            cmd, cwd=workdir, env={**self._child_env(workdir), EXEC_MARK_VAR: mark}, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(ev_w,) if on_event else (),
-            start_new_session=True, close_fds=True,
-        )
+        # The new process inherits this thread's signal mask across exec. Defer stop signals
+        # until supervisor.main has installed handlers; an early SIGTERM must not kill it
+        # before it can verify containment and publish the marker. No preexec_fn is used.
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGHUP})
+        try:
+            child = subprocess.Popen(
+                cmd, cwd=workdir, env={**self._child_env(workdir), EXEC_MARK_VAR: mark}, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(ev_w,) if on_event else (),
+                start_new_session=True, close_fds=True,
+            )
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         with self._lock:
             self._child = child
         try:
