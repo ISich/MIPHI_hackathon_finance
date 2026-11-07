@@ -67,14 +67,14 @@ def test_real_fixture_run_end_to_end(client, env):
     assert client.post(f"/api/runs/{run['run_id']}/pivot", json={}).json()["code"] == "ANALYTICS_UNAVAILABLE"
 
 
-def test_summary_before_completion_is_not_ready(client):
-    ds = demo_dataset(client)
-    cfg = config(client, ds["dataset_id"])
-    run = start_run(client, cfg["config_id"]).json()
-    r = client.get(f"/api/runs/{run['run_id']}/summary")
-    if r.status_code != 200:  # unless the tiny fixture already finished
-        assert r.status_code == 409 and r.json()["code"] == "NOT_READY"
-    wait_run(client, run["run_id"])
+def test_summary_before_completion_is_not_ready(no_worker_client):
+    c = no_worker_client
+    ds = demo_dataset(c)
+    run = start_run(c, config(c, ds["dataset_id"])["config_id"]).json()
+    assert c.get(f"/api/runs/{run['run_id']}").json()["status"] == "QUEUED"
+    for url in ("summary", "artifacts", "pivot-facts", "applications/I32554354"):
+        r = c.get(f"/api/runs/{run['run_id']}/{url}")
+        assert r.status_code == 409 and r.json()["code"] == "NOT_READY", url
 
 
 def test_runs_list_and_idempotency(client):

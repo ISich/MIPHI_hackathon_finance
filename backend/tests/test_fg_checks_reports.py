@@ -141,14 +141,18 @@ def test_check_only_run_creates_new_report_and_keeps_old_one(trusted):
     assert "business_fail" in code["code"]
 
 
-def test_check_runs_need_completed_run_and_respect_safe_mode(client):
+def test_check_run_on_unfinished_run_is_not_ready(no_worker_client):
+    c = no_worker_client
+    ds = demo_dataset(c)
+    run = start_run(c, config(c, ds["dataset_id"], checks=[])["config_id"]).json()
+    r = c.post(f"/api/runs/{run['run_id']}/check-runs", json={"checks": []}, headers=idem())
+    assert r.status_code == 409 and r.json()["code"] == "NOT_READY"
+    assert len(c.get(f"/api/runs/{run['run_id']}/reports").json()["items"]) == 1
+
+
+def test_custom_check_run_refused_in_safe_mode(client):
     ds = demo_dataset(client)
-    cfg = config(client, ds["dataset_id"], checks=[])
-    run = start_run(client, cfg["config_id"]).json()
-    r = client.post(f"/api/runs/{run['run_id']}/check-runs", json={"checks": []}, headers=idem())
-    if r.status_code != 202:
-        assert r.status_code == 409 and r.json()["code"] == "NOT_READY"
-    done = wait_run(client, run["run_id"])
+    done = wait_run(client, start_run(client, config(client, ds["dataset_id"], checks=[])["config_id"]).json()["run_id"])
     custom = client.post("/api/scripts", json={"kind": "check", "name": "c", "code": CHECKS["empty"]}).json()
     r = client.post(f"/api/runs/{done['run_id']}/check-runs", json={"checks": [{"script_id": custom["script_id"]}]},
                     headers=idem())
@@ -156,11 +160,12 @@ def test_check_runs_need_completed_run_and_respect_safe_mode(client):
     assert len(client.get(f"/api/runs/{done['run_id']}/reports").json()["items"]) == 1
 
 
-def test_report_not_ready_before_publication(client):
-    ds = demo_dataset(client)
-    run = start_run(client, config(client, ds["dataset_id"])["config_id"]).json()
-    r = client.get(f"/api/reports/{run['initial_report_id']}/checks")
-    if r.status_code != 200:
-        assert r.status_code == 409 and r.json()["code"] == "NOT_READY"
-    assert client.get(f"/api/reports/{run['initial_report_id']}").json()["status"] in ("PENDING", "PUBLISHED")
-    wait_run(client, run["run_id"])
+def test_report_not_ready_before_publication(no_worker_client):
+    c = no_worker_client
+    ds = demo_dataset(c)
+    run = start_run(c, config(c, ds["dataset_id"])["config_id"]).json()
+    for url in (f"/api/reports/{run['initial_report_id']}/checks", f"/api/reports/{run['initial_report_id']}/checks.html",
+                f"/api/runs/{run['run_id']}/checks"):
+        r = c.get(url)
+        assert r.status_code == 409 and r.json()["code"] == "NOT_READY", url
+    assert c.get(f"/api/reports/{run['initial_report_id']}").json()["status"] == "PENDING"

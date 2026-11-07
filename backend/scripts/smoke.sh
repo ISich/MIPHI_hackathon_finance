@@ -13,7 +13,7 @@ BASE="http://127.0.0.1:$PORT"
 core="$("$here/scripts/fetch_core.sh")"
 export DD_HOME="${DD_HOME:-$(mktemp -d)}"
 export DD_DATA_ROOTS="examples=$core/examples"
-export DD_CHECKS_DIR="$core/checks"
+export DD_CHECKS_DIR="${DD_CHECKS_DIR:-$core/checks}"
 mkdir -p "$OUT"
 jar="$OUT/cookies.txt"; rm -f "$jar"
 
@@ -74,6 +74,21 @@ done
 save 21_reports GET "/api/runs/$run/reports"
 save 22_error_not_found GET "/api/runs/run_doesnotexist"
 save 23_error_idempotency_required POST /api/runs "{\"configuration_id\":\"$cfg\"}"
+crep=$(j 20_check_run_status '["report_id"]')
+save 20b_check_run_report GET "/api/reports/$crep/checks"
 rm -f "$jar"
-echo "SMOKE run=$run status=$st check_run=$cr status=$cst out=$OUT"
-[ "$st" = COMPLETED ] && [ "$cst" = COMPLETED ]
+# A COMPLETED status alone is not success: check execution problems give COMPLETED + INCOMPLETE reports.
+verdict=$("$PY" - "$OUT" <<'PYEOF'
+import json, sys
+out = sys.argv[1]
+problems = []
+for name in ("13_checks_initial", "20b_check_run_report"):
+    d = json.load(open(f"{out}/{name}.json"))
+    statuses = [e.get("execution_status") for e in d.get("executions", [])]
+    if d.get("completeness") != "COMPLETE" or not statuses or any(s != "SUCCEEDED" for s in statuses):
+        problems.append(f"{name}: completeness={d.get('completeness')} statuses={statuses}")
+print("OK" if not problems else "; ".join(problems))
+PYEOF
+)
+echo "SMOKE run=$run status=$st check_run=$cr status=$cst checks=$verdict out=$OUT"
+[ "$st" = COMPLETED ] && [ "$cst" = COMPLETED ] && [ "$verdict" = OK ]

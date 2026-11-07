@@ -48,6 +48,14 @@ def peer(app, **kwargs) -> TestClient:
 
 
 @pytest.fixture
+def no_worker_client(env, monkeypatch):
+    """API without any worker: accepted runs deterministically stay QUEUED."""
+    monkeypatch.setenv("DD_EMBEDDED_WORKER", "0")
+    with make_client() as c:
+        yield c
+
+
+@pytest.fixture
 def client(env):
     with make_client() as c:
         yield c
