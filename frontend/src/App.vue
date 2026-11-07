@@ -84,7 +84,7 @@ const view = computed(() => {
   if (section === "runs" && id && sub === "fact-apps")
     return { name: "fact-apps" as const, runId: id, group: q.get("g") ?? "", cnt: q.get("cnt") ? Number(q.get("cnt")) : null, report: q.get("report") };
   if (section === "runs" && id && sub === "apps" && subId)
-    return { name: "app" as const, runId: id, appId: subId, group: q.get("group"), back: q.get("back") ?? "" };
+    return { name: "app" as const, runId: id, appId: subId, group: q.get("group"), back: q.get("back") ?? "", report: q.get("report") };
   if (section === "runs" && id) return { name: "run" as const, runId: id, tab: sub, query: q };
   if (section === "scripts" && id === "new") return { name: "new-script" as const, fromId: q.get("from") };
   if (section === "scripts" && id) return { name: "script" as const, scriptId: id };
@@ -109,7 +109,7 @@ const view = computed(() => {
     <DatasetsPage v-else-if="view.name === 'datasets'" :owner="user.username" />
     <GroupApplications v-else-if="view.name === 'group'" :key="view.group" :run-id="view.runId" :group="view.group" :back="view.back" />
     <FactApplications v-else-if="view.name === 'fact-apps'" :run-id="view.runId" :group="view.group" :cnt="view.cnt" :report="view.report" />
-    <ApplicationView v-else-if="view.name === 'app'" :run-id="view.runId" :app-id="view.appId" :group="view.group" :back="view.back" />
+    <ApplicationView v-else-if="view.name === 'app'" :run-id="view.runId" :app-id="view.appId" :group="view.group" :back="view.back" :report="view.report" />
     <RunPage v-else-if="view.name === 'run'" :run-id="view.runId" :tab="view.tab" :query="view.query" />
     <NewScript v-else-if="view.name === 'new-script'" :from-id="view.fromId" />
     <ScriptView v-else-if="view.name === 'script'" :script-id="view.scriptId" />

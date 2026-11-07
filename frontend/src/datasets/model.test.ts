@@ -32,4 +32,29 @@ describe("dataset tables", () => {
     const many = { ...table, rows: Array.from({ length: 1001 }, (_, i) => [String(i), i]) };
     expect(() => buildPivot(many, { ...table.pivot, rows: ["c0"] })).toThrow(/Слишком много групп/);
   });
+
+  it("keeps integer sums exact through cancellation and rejects unsafe totals", () => {
+    const max = Number.MAX_SAFE_INTEGER;
+    const table = fromMatrix("large", [["Value"], [max], [2], [-max]], "test");
+    expect(buildPivot(table, table.pivot).total).toBe(2);
+    const unsafe = { ...table, rows: [[max], [2]] };
+    expect(() => buildPivot(unsafe, table.pivot)).toThrow(/диапазон точного расчёта/);
+    expect(() => buildPivot({ ...table, rows: [[-max], [-2]] }, table.pivot)).toThrow(/диапазон точного расчёта/);
+    expect(buildPivot(unsafe, { ...table.pivot, operation: "count" }).total).toBe(2);
+    expect(buildPivot(unsafe, { ...table.pivot, operation: "max" }).total).toBe(max);
+    expect(buildPivot(unsafe, { ...table.pivot, operation: "min" }).total).toBe(2);
+    expect(buildPivot({ ...table, rows: [[max], [max]] }, { ...table.pivot, operation: "avg" }).total).toBe(max);
+  });
+
+  it("rejects an unsafe group even when the overall sum is safe", () => {
+    const table = fromMatrix("groups", [["Group", "Value"], ["A", Number.MAX_SAFE_INTEGER], ["A", 2], ["B", -Number.MAX_SAFE_INTEGER]], "test");
+    expect(() => buildPivot(table, table.pivot)).toThrow(/диапазон точного расчёта/);
+  });
+
+  it("retains small values in mixed sums", () => {
+    const table = fromMatrix("mixed", [["Value"], [Number.MAX_SAFE_INTEGER], [2], [-Number.MAX_SAFE_INTEGER], [0.5]], "test");
+    expect(buildPivot(table, table.pivot).total).toBe(2.5);
+    const tiny = { ...table, rows: [[0.1], [0.2], [-0.3]] };
+    expect(buildPivot(tiny, table.pivot).total).toBeCloseTo(0, 14);
+  });
 });

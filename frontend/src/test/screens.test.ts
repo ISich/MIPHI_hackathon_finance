@@ -19,6 +19,9 @@ const { default: RunPage } = await import("../run-monitor/RunPage.vue");
 const { default: PivotView } = await import("../pivot/PivotView.vue");
 const { default: SummaryView } = await import("../report-summary/SummaryView.vue");
 const { default: NewRun } = await import("../run-config/NewRun.vue");
+const { default: RunsList } = await import("../run-monitor/RunsList.vue");
+const { default: DatasetPivot } = await import("../datasets/DatasetPivot.vue");
+const { fromMatrix } = await import("../datasets/model");
 const { default: GroupApplications } = await import("../drilldown/GroupApplications.vue");
 const { default: FactApplications } = await import("../drilldown/FactApplications.vue");
 const { default: App } = await import("../App.vue");
@@ -29,6 +32,33 @@ const mnt = <P extends Record<string, unknown>>(c: Parameters<typeof mount>[0], 
 beforeEach(() => {
   resetMock();
   window.location.hash = "";
+});
+
+describe("Account dashboard totals", () => {
+  it("shows the API total and labels status counts, search and activity as a partial page", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => url === "/api/runs"
+      ? new Response(JSON.stringify({ items: Array.from({ length: 50 }, (_, i) => ({ ...run, run_id: `run_${i}` })), total: 121, limit: 50, offset: 0 }), { status: 200 })
+      : inner(url, init);
+    const w = mnt(RunsList, { overview: true });
+    await waitFor(() => expect(w.find(".metric-neutral .metric-value").text()).toBe("121"));
+    expect(w.find(".metric-success .metric-value").text()).toBe("50");
+    expect(w.find(".metric-success .metric-detail").text()).toBe("Среди последних 50");
+    expect(w.get('[role="note"]').text()).toContain("Загружены последние 50 из 121");
+    expect(w.get('[role="img"]').attributes("aria-label")).toContain("По последним 50 запускам");
+    expect(w.get('.table-footer [role="status"]').text()).toBe("Показано 50 из 121");
+    w.unmount();
+  });
+
+  it("does not show a partial-page warning when the whole account fits in one page", async () => {
+    await completedRun();
+    const w = mnt(RunsList);
+    await waitFor(() => expect(w.find(".metric-neutral .metric-value").text()).toBe("1"));
+    expect(w.find('[role="note"]').exists()).toBe(false);
+    expect(w.get(".metric-success .metric-detail").text()).toBe("Все запуски аккаунта");
+    w.unmount();
+  });
 });
 
 describe("Run monitor", () => {
@@ -130,6 +160,16 @@ describe("Code links of later CheckRuns", () => {
 });
 
 describe("Explicit report context survives navigation", () => {
+  it("an application opened from HTML shows attributes and returns to the same report's pivot", async () => {
+    const run = await completedRun();
+    window.location.hash = `#/runs/${run.run_id}/apps/MOCK-0001?report=rep_X`;
+    await testApi.login("admin", "admin12345");
+    const w = mnt(App);
+    await waitFor(() => table(w, "Сравнение атрибутов"));
+    expect(w.get("h1").text()).toBe("Заявка MOCK-0001");
+    expect(link(w, /К сводной/).getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?report=rep_X`);
+    w.unmount();
+  });
   it("run tabs keep ?report=", async () => {
     const run = await completedRun();
     const w = mnt(RunPage, { runId: run.run_id, tab: "checks", query: new URLSearchParams("report=rep_X") });
@@ -161,6 +201,21 @@ describe("Explicit report context survives navigation", () => {
     const w2 = mnt(FactApplications, { runId: run.run_id, group: g.get("g")!, cnt: 1, report: "rep_X" });
     expect(link(w2, /К базовым фактам/).getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?report=rep_X`);
     w2.unmount();
+  });
+});
+
+describe("Dataset pivot calculation errors", () => {
+  it("shows an unsafe subtotal as an error, blocks export and recovers with another aggregation", async () => {
+    const dataset = fromMatrix("groups", [["Group", "Value"], ["A", Number.MAX_SAFE_INTEGER], ["A", 2], ["B", -Number.MAX_SAFE_INTEGER]], "test");
+    const w = mount(DatasetPivot, { props: { dataset }, attachTo: document.body.appendChild(document.createElement("div")) });
+    expect(w.get('[role="alert"]').text()).toContain("диапазон точного расчёта");
+    expect(button(w, "Скачать CSV").disabled).toBe(true);
+    expect(w.find('[aria-label="Сводная таблица"]').exists()).toBe(false);
+    await w.setProps({ dataset: { ...dataset, pivot: { ...dataset.pivot, operation: "count" } } });
+    expect(w.find('[role="alert"]').exists()).toBe(false);
+    expect(button(w, "Скачать CSV").disabled).toBe(false);
+    expect(table(w, "Сводная таблица").textContent).toContain("3");
+    w.unmount();
   });
 });
 

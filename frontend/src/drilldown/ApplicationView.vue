@@ -6,7 +6,7 @@ import AsyncView from "../components/AsyncView.vue";
 import { useApi } from "../composables/useApi";
 import { href } from "../router";
 
-const props = defineProps<{ runId: string; appId: string; group: string | null; back: string }>();
+const props = defineProps<{ runId: string; appId: string; group: string | null; back: string; report?: string | null }>();
 const onlyDiff = ref(true);
 const app = useApi(() => `app:${props.runId}:${props.appId}`, () => api.application(props.runId, props.appId));
 const rowsOf = (rows: ComparisonRow[]) => (onlyDiff.value ? rows.filter((r) => Number(r.DIFF_FLAG) === 1) : rows);
@@ -16,7 +16,7 @@ const rowsOf = (rows: ComparisonRow[]) => (onlyDiff.value ? rows.filter((r) => N
   <section>
     <p>
       <a v-if="group" :href="`${href('runs', runId, 'groups', group)}?back=${encodeURIComponent(back)}`">← К заявкам группы</a>
-      <a v-else :href="href('runs', runId, 'pivot')">← К сводной</a>
+      <a v-else :href="`${href('runs', runId, 'pivot')}${report ? `?report=${encodeURIComponent(report)}` : ''}`">← К сводной</a>
     </p>
     <h1>Заявка <code>{{ appId }}</code></h1>
     <AsyncView :value="app" what="Загрузка заявки">

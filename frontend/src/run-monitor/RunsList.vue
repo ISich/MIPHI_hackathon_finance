@@ -11,28 +11,31 @@ import { href } from "../router";
 import { activityByDay, formatDuration, formatRunDate, selectRuns, type RunFilter } from "./presentation";
 
 defineProps<{ overview?: boolean }>();
-const runs = useApi(() => "runs", () => api.runs());
+const runs = useApi(() => "runs", () => api.runsPage());
 const query = ref("");
 const filter = ref<RunFilter>("all");
 const today = ref(new Date());
 let dateTimer: ReturnType<typeof setInterval>;
 onMounted(() => { dateTimer = setInterval(() => { today.value = new Date(); }, 60_000); });
 onUnmounted(() => clearInterval(dateTimer));
-const all = computed(() => runs.data ?? []);
+const all = computed(() => runs.data?.items ?? []);
+const total = computed(() => runs.data?.total ?? 0);
+const partial = computed(() => total.value > all.value.length);
+const scope = computed(() => partial.value ? `Среди последних ${all.value.length}` : "Все запуски аккаунта");
 const filtered = computed(() => selectRuns(all.value, query.value, filter.value));
 const days = computed(() => activityByDay(all.value, today.value));
 const activeCount = computed(() => all.value.filter(run => run.status === "RUNNING" || run.status === "QUEUED").length);
 const metrics = computed(() => [
-  { label: "Всего запусков", value: all.value.length, icon: "runs", detail: "В текущей сессии", filter: "all" as const, tone: "neutral" },
-  { label: "Завершено", value: all.value.filter(run => run.status === "COMPLETED").length, icon: "check", detail: "Расчёт выполнен", filter: "completed" as const, tone: "success" },
-  { label: "В работе", value: activeCount.value, icon: "activity", detail: "В очереди и выполняются", filter: "active" as const, tone: "accent" },
-  { label: "С ошибкой", value: all.value.filter(run => run.status === "FAILED").length, icon: "warning", detail: "Требуют внимания", filter: "failed" as const, tone: "danger" },
+  { label: "Всего запусков", value: total.value, icon: "runs", detail: "В аккаунте", filter: "all" as const, tone: "neutral" },
+  { label: "Завершено", value: all.value.filter(run => run.status === "COMPLETED").length, icon: "check", detail: scope.value, filter: "completed" as const, tone: "success" },
+  { label: "В работе", value: activeCount.value, icon: "activity", detail: scope.value, filter: "active" as const, tone: "accent" },
+  { label: "С ошибкой", value: all.value.filter(run => run.status === "FAILED").length, icon: "warning", detail: scope.value, filter: "failed" as const, tone: "danger" },
 ]);
 const filters: Array<{ value: RunFilter; label: string }> = [
   { value: "all", label: "Все запуски" }, { value: "active", label: "Активные" }, { value: "completed", label: "Завершённые" }, { value: "failed", label: "С ошибкой" },
 ];
 usePolling(
-  () => !!runs.data?.some((r) => r.status === "QUEUED" || r.status === "RUNNING"),
+  () => !!runs.data?.items.some((r) => r.status === "QUEUED" || r.status === "RUNNING"),
   () => timing.listPollMs,
   async () => runs.reload(),
 );
@@ -45,11 +48,12 @@ function resetFilters() { query.value = ""; filter.value = "all"; }
       <div><span class="eyebrow">Анализ изменений СПР</span><h1>{{ overview ? 'Обзор рабочего пространства' : 'Запуски' }}</h1><p class="muted">{{ overview ? 'Всё, что происходит с вашими расчётами, — в одном месте.' : 'История расчётов, результаты сравнения и отчёты проверок.' }}</p></div>
       <a class="button primary" :href="href('runs', 'new')"><AppIcon name="plus" :size="17" />Новый запуск</a>
     </div>
-    <div class="view-toolbar"><span class="period-label"><AppIcon name="calendar" :size="17" />{{ today.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) }}</span><span class="toolbar-note"><span class="live-dot" :class="{ 'is-active': activeCount > 0 }" />{{ activeCount ? 'Активные запуски обновляются автоматически' : 'Данные текущей сессии' }}</span></div>
+    <div class="view-toolbar"><span class="period-label"><AppIcon name="calendar" :size="17" />{{ today.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) }}</span><span class="toolbar-note"><span class="live-dot" :class="{ 'is-active': activeCount > 0 }" />{{ activeCount ? 'Активные запуски обновляются автоматически' : 'Данные аккаунта' }}</span></div>
     <AsyncView :value="runs" what="Загрузка запусков">
       <template #default>
         <div class="metric-grid" aria-label="Показатели запусков"><button v-for="metric in metrics" :key="metric.label" class="metric-card" :class="`metric-${metric.tone}`" :aria-pressed="filter === metric.filter" @click="filter = metric.filter"><span class="metric-top"><span class="metric-icon"><AppIcon :name="metric.icon" :size="19" /></span><AppIcon name="arrow" :size="16" /></span><span class="metric-label">{{ metric.label }}</span><strong class="metric-value">{{ metric.value.toLocaleString('ru-RU') }}</strong><span class="metric-detail">{{ metric.detail }}</span></button></div>
-        <ActivityChart v-if="overview" :days="days" />
+        <p v-if="partial" class="muted" role="note">Загружены последние {{ all.length }} из {{ total }} запусков. Статусы, график, поиск и фильтры учитывают только эти запуски.</p>
+        <ActivityChart v-if="overview" :days="days" :scope="partial ? `По последним ${all.length} запускам` : undefined" />
         <section class="runs-panel" aria-labelledby="runs-table-title">
           <div class="panel-heading"><div><h2 id="runs-table-title">{{ overview ? 'Последние запуски' : 'История запусков' }} <span class="count-badge">{{ all.length }}</span></h2><p class="muted">Выберите запуск, чтобы исследовать изменения и результаты проверок.</p></div><button class="button refresh-button" :disabled="runs.loading" @click="runs.reload()"><AppIcon name="refresh" :size="15" />Обновить</button></div>
           <div class="runs-filters"><div class="filter-tabs" role="group" aria-label="Фильтр статуса"><button v-for="item in filters" :key="item.value" :class="{ selected: filter === item.value }" :aria-pressed="filter === item.value" @click="filter = item.value">{{ item.label }}</button></div><label class="search-field"><AppIcon name="search" :size="16" /><span class="sr-only">Поиск запусков</span><input v-model="query" type="search" placeholder="Поиск по ID, данным…" /></label></div>
@@ -78,7 +82,7 @@ function resetFilters() { query.value = ""; filter.value = "all"; }
           </tbody>
         </table></div>
         <div v-else class="runs-empty"><span class="empty-icon"><AppIcon :name="all.length ? 'search' : 'runs'" :size="26" /></span><h3>{{ all.length ? 'Ничего не найдено' : 'Пока ни одного запуска' }}</h3><p>{{ all.length ? 'Измените запрос или выберите другой статус.' : 'Выберите набор данных и настройте процедуры. Мы покажем ход анализа и сохраним результаты.' }}</p><button v-if="all.length" @click="resetFilters">Сбросить фильтры</button><a v-else class="button primary" :href="href('runs', 'new')"><AppIcon name="plus" :size="16" />Создать первый запуск</a></div>
-        <div class="table-footer"><span role="status">Показано {{ filtered.length }} из {{ all.length }}</span><span>Новые запуски сверху</span></div>
+        <div class="table-footer"><span role="status">Показано {{ filtered.length }} из {{ total }}</span><span>Новые запуски сверху</span></div>
         </section>
         <div v-if="overview" class="overview-note"><AppIcon name="shield" :size="18" /><p>Показатели выше описывают запуски, а не изменения заявок. Результаты сравнения и бизнес-проверок доступны в отчёте каждого запуска.</p><a :href="href('scripts')">К процедурам<AppIcon name="arrow" :size="15" /></a></div>
       </template>

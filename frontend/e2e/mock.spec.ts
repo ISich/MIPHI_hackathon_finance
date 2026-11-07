@@ -76,6 +76,14 @@ test("deep link from HTML report opens the pivot of that Run", async ({ page }) 
   await expect(page.getByRole("heading", { level: 1 })).toContainText("run_x");
 });
 
+test("per-application HTML link keeps the application and report through sign-in and back navigation", async ({ page }) => {
+  await signIn(page, "/runs/run_x/reports/rep_y?app_id=MOCK-0001");
+  await expect(page).toHaveURL(/#\/runs\/run_x\/apps\/MOCK-0001\?report=rep_y$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Заявка MOCK-0001");
+  await page.getByRole("link", { name: "← К сводной", exact: true }).click();
+  await expect(page).toHaveURL(/#\/runs\/run_x\/pivot\?report=rep_y$/);
+});
+
 async function sidebarLink(page: Page, name: string) {
   const navigation = page.getByRole("navigation", { name: "Основная навигация" });
   if (!(await navigation.isVisible())) await page.getByRole("button", { name: "Открыть боковую панель" }).click();

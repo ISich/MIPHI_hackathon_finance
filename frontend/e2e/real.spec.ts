@@ -30,7 +30,7 @@ async function startRealRun(page: Page): Promise<string> {
 }
 
 test("real: configuration → Run → monitor/events → summary → pivot → drill-down → application → checks", async ({ page }, info) => {
-  // page.request shares the browser cookie = the same anonymous owner session
+  // page.request shares the browser cookie = the same authenticated account session
   const request = page.request;
   const runId = await startRealRun(page);
   // journal shows real stage events with code snapshot links
@@ -100,20 +100,6 @@ test("real: an open terminal Run monitor receives a later builtin CheckRun and r
   await expect(page).toHaveURL(new RegExp(`#/runs/${runId}`));
 });
 
-test("real: a fresh browser gets exactly one anonymous session on first load (no parallel-session race)", async ({ page }) => {
-  const issued: string[] = [];
-  page.on("response", async (r) => {
-    const sc = (await r.allHeaders())["set-cookie"];
-    if (sc && sc.includes("dd_session=")) issued.push(r.url());
-  });
-  await page.goto("/#/scripts/new"); // fires several API calls at once
-  await expect(page.getByTestId("exec-mode")).toBeVisible();
-  await page.goto("/#/runs/new");
-  await expect(page.getByRole("combobox", { name: "Процедура normalize" })).toBeVisible();
-  expect(issued).toHaveLength(1);
-  expect(issued[0]).toContain("/api/session");
-});
-
 test("real: another session cannot read this Run (owner scope)", async ({ page, request }) => {
   const runId = await startRealRun(page);
   expect((await page.request.get(`/api/runs/${runId}`)).status()).toBe(200);
@@ -123,7 +109,7 @@ test("real: another session cannot read this Run (owner scope)", async ({ page, 
 });
 
 test("real: new check — builtin-only refusal or trusted-local new report", async ({ page, browserErrors }, info) => {
-  // page.request shares the browser cookie = the same anonymous owner session
+  // page.request shares the browser cookie = the same authenticated account session
   const request = page.request;
   if (!TRUSTED) browserErrors.allow({ method: "POST", url: /^\/api\/runs\/[^/]+\/check-runs$/, status: 403 }); // documented refusal in builtin-only
   const runId = await startRealRun(page);

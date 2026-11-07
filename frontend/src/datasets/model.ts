@@ -42,18 +42,40 @@ export function fromMatrix(name: string, matrix: Value[][], source: string): Tab
 export function display(value: Value | undefined): string { return value == null || value === "" ? "(пусто)" : String(value); }
 export function formatNumber(value: number | null): string { return value === null ? "—" : new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 4 }).format(value); }
 
-interface Bucket { count: number; numeric: number; sum: number; min: number; max: number }
-const bucket = (): Bucket => ({ count: 0, numeric: 0, sum: 0, min: Infinity, max: -Infinity });
+interface Bucket { count: number; numeric: number; sum: number; correction: number; integerSum: bigint | null; min: number; max: number }
+const bucket = (): Bucket => ({ count: 0, numeric: 0, sum: 0, correction: 0, integerSum: 0n, min: Infinity, max: -Infinity });
 function add(b: Bucket, value: Value | undefined) {
   b.count++;
   const n = numberValue(value);
-  if (n !== null) { b.numeric++; b.sum += n; b.min = Math.min(b.min, n); b.max = Math.max(b.max, n); }
+  if (n !== null) {
+    b.numeric++;
+    const next = b.sum + n;
+    b.correction += Math.abs(b.sum) >= Math.abs(n) ? (b.sum - next) + n : (n - next) + b.sum;
+    b.sum = next;
+    // Keep integer totals exact even when an intermediate sum exceeds Number's range.
+    b.integerSum = b.integerSum !== null && Number.isInteger(n) ? b.integerSum + BigInt(n) : null;
+    b.min = Math.min(b.min, n); b.max = Math.max(b.max, n);
+  }
 }
 function result(b: Bucket | undefined, operation: Operation): number | null {
   if (!b) return null;
   if (operation === "count") return b.count;
   if (!b.numeric) return null;
-  return operation === "sum" ? b.sum : operation === "avg" ? b.sum / b.numeric : operation === "min" ? b.min : b.max;
+  if (operation === "min") return b.min;
+  if (operation === "max") return b.max;
+  let value: number;
+  if (b.integerSum !== null) {
+    // Divide before converting so a representable mean does not require a safe total.
+    const count = BigInt(b.numeric);
+    value = operation === "sum" ? Number(b.integerSum) : Number(b.integerSum / count) + Number(b.integerSum % count) / b.numeric;
+  } else {
+    const sum = b.sum + b.correction;
+    value = operation === "sum" ? sum : sum / b.numeric;
+  }
+  if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) {
+    throw new Error("Результат выходит за диапазон точного расчёта. Уменьшите значения, задайте фильтр или выберите другую агрегацию.");
+  }
+  return value;
 }
 export function buildPivot(dataset: TableDataset, config: PivotConfig) {
   const index = (id: string) => dataset.fields.findIndex(f => f.id === id);
@@ -77,6 +99,8 @@ export function buildPivot(dataset: TableDataset, config: PivotConfig) {
     }
     add(total, row[valueIndex]);
   }
+  // Validate every subtotal here, inside the UI's error boundary, before rendering/exporting cells.
+  for (const map of [cells, rowTotals, columnTotals]) for (const b of map.values()) result(b, config.operation);
   const sorted = (map: Map<string, Value[]>) => [...map].sort((a, b) => a[1].map(display).join(" / ").localeCompare(b[1].map(display).join(" / "), "ru", { numeric: true }));
   return { rows: sorted(rows), columns: sorted(columns), count: total.count, numeric: total.numeric,
     cell: (r: string, c: string) => result(cells.get(JSON.stringify([r, c])), config.operation),

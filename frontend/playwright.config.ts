@@ -10,7 +10,7 @@ const MOCK_PORT = 5174;
 
 export default defineConfig({
   testDir: "e2e",
-  testMatch: real ? ["real.spec.ts", "auth.spec.ts"] : ["mock.spec.ts", "auth.spec.ts", "guard.meta.spec.ts", "datasets.spec.ts"],
+  testMatch: real ? ["real.spec.ts", "auth.spec.ts", "session.spec.ts"] : ["mock.spec.ts", "auth.spec.ts", "guard.meta.spec.ts", "datasets.spec.ts"],
   timeout: real ? 180_000 : 60_000,
   expect: { timeout: real ? 60_000 : 5_000 },
   retries: 1,

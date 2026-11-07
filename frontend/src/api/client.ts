@@ -17,6 +17,7 @@ import type {
   PivotFactsPage,
   PivotRequest,
   PivotResponse,
+  Page,
   Readiness,
   Report,
   ReportChecks,
@@ -293,6 +294,10 @@ export class ApiClient {
   }
   async runs(): Promise<Run[]> {
     return listOf<Run>(await this.request("GET", "/api/runs"));
+  }
+  async runsPage(): Promise<Page<Run>> {
+    const body = await this.request<Page<Run>>("GET", "/api/runs");
+    return { ...body, items: listOf<Run>(body) };
   }
   run(id: string): Promise<Run> {
     return this.request("GET", `/api/runs/${enc(id)}`);

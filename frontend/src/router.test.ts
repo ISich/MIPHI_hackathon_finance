@@ -19,6 +19,12 @@ describe("router", () => {
     expect(deepLinkToHash("/")).toBeNull();
     expect(deepLinkToHash("/runs/run_1")).toBeNull();
   });
+  it("maps per-app HTML links without losing encoded identifiers or report context", () => {
+    expect(deepLinkToHash("/runs/run%2Fx/reports/rep%201", "?app_id=A%2FB%20%2B%3F%23"))
+      .toBe("#/runs/run%2Fx/apps/A%2FB%20%2B%3F%23?report=rep%201");
+    expect(deepLinkToHash("/runs/run_1/reports/rep_9", "?app_id="))
+      .toBe("#/runs/run_1/pivot?report=rep_9");
+  });
 });
 
 describe("pivot layout in URL", () => {

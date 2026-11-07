@@ -63,6 +63,11 @@ describe("ApiClient requests", () => {
     expect(await new ApiClient(fakeFetch(200, { items: [{ run_id: "r" }], total: 1, limit: 50, offset: 0 }).f).runs()).toHaveLength(1);
   });
 
+  it("preserves the account total when only the first page of runs is loaded", async () => {
+    const body = { items: [{ run_id: "r" }], total: 121, limit: 50, offset: 0 };
+    expect(await new ApiClient(fakeFetch(200, body).f).runsPage()).toEqual(body);
+  });
+
   it("sends configuration_id and the Idempotency-Key header when creating a Run", async () => {
     const { f, calls } = fakeFetch(202, { run_id: "r1" });
     await new ApiClient(f).createRun({ configuration_id: "cfg1" }, "key-1");
