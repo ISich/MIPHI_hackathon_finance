@@ -108,6 +108,8 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 | `DD_MAX_MEMORY_MB` | `6144` | RLIMIT_AS per child |
 | `DD_WORKER_LEASE_SECONDS` | `15` | heartbeat lease for worker liveness / interrupted-job detection |
 | `DD_COOKIE_SECURE` | `0` | set `1` behind TLS (local HTTP mode otherwise) |
+| `DD_ALLOWED_HOSTS` | `127.0.0.1,localhost,::1` | accepted `Host` names (anti DNS-rebinding); other hosts → 400. trusted-local accepts loopback names only |
+| `DD_ALLOWED_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | extra origins allowed for POST/PUT (same-origin always allowed; foreign Origin / `Sec-Fetch-Site: cross-site` → 403) |
 | `DD_REPORT_UI_BASE` | `http://127.0.0.1:5173` | absolute UI base embedded in HTML reports (provisional route `/runs/{run}/reports/{report}`) |
 
 ## API overview
@@ -146,7 +148,16 @@ read-only · 404 `NOT_FOUND` (also for other owners' IDs — existence is not le
 - Sessions are anonymous, server-side (random 256-bit cookie, stored hashed, HttpOnly, SameSite=Lax). Not IAM.
 - Dataset paths are names of allowlisted roots + relative paths; absolute paths, `..` and symlinks resolving
   outside the root are rejected. Server paths never appear in responses; child diagnostics are path-sanitized.
-- `serve` refuses non-loopback binds unless `--allow-non-loopback` is given (deployment is the operator's call).
+- `serve` refuses non-loopback binds unless `--allow-non-loopback` is given (deployment is the operator's call);
+  behind a proxy also set `DD_ALLOWED_HOSTS` to the public name. The app itself (also when started directly via
+  uvicorn) rejects unknown `Host` headers, cross-origin state-changing requests and, in trusted-local, any
+  non-loopback client address.
+- Request bodies are limited while being received (2 MiB JSON, code limit + 64 KiB multipart), also without
+  `Content-Length`.
+- Worker: a job is failed as interrupted only when its worker process is gone (same host: pid + start time);
+  every write of a worker is fenced by job ownership. The whole child process group is killed after each child.
+  Inputs are read once (no symlink, real path inside the root), and the fingerprinted bytes are the ones parsed.
+  A run refuses to execute when the installed core differs from the accepted snapshot (`CORE_VERSION_MISMATCH`).
 
 ## Known gaps
 
