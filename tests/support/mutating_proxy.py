@@ -22,6 +22,7 @@ Mutations:
   mode_missing              - /api/session omits execution_mode
   reject_badjson_dataset    - POST /api/datasets for the 'badjson' fixture answers 422 (early-rejection policy)
   pivot_200_no_locator      - POST /api/runs/{id}/pivot answers 200 with cells lacking any group locator
+  shared_owner_for_downloads - artifact download and check-run code ignore the caller's session (first cookie wins)
 """
 from __future__ import annotations
 
@@ -74,6 +75,12 @@ def make_proxy(upstream: str, mutations: set[str]) -> ThreadingHTTPServer:
                     r"/api/runs/[^/]+/(pivot|pivot-facts/applications|groups/[^/]+/applications)", path.split("?")[0]):
                 with lock:
                     cookie = owner_cookie.setdefault("__query__", self.headers.get("cookie", ""))
+                headers = {k: v for k, v in headers.items() if k.lower() != "cookie"}
+                headers["cookie"] = cookie
+            if "shared_owner_for_downloads" in mutations and re.fullmatch(
+                    r"/api/(runs/[^/]+/artifacts/[^/]+|check-runs/[^/]+/code/[^/]+)", path.split("?")[0]):
+                with lock:
+                    cookie = owner_cookie.setdefault("__downloads__", self.headers.get("cookie", ""))
                 headers = {k: v for k, v in headers.items() if k.lower() != "cookie"}
                 headers["cookie"] = cookie
             if "refuse_custom_config" in mutations and method == "POST" and path == "/api/configurations" \

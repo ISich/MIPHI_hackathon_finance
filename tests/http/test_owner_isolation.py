@@ -176,3 +176,21 @@ def test_group_locator_is_owner_scoped(api_a, api_b, completed_example_run):
     assert a_group.status_code == 200 and app in a_group.text, a_group.text[:300]
     b_group = api_b.get(f"/api/runs/{run_id}/groups/{locator}/applications")
     assert b_group.status_code == 404 and app not in b_group.text, (b_group.status_code, b_group.text[:200])
+
+
+def test_artifact_download_and_check_run_code_are_owner_scoped(api_a, api_b, completed_example_run):
+    """CR(4b74f18) #7: real artifact download and check-run code snapshot - A succeeds, B gets 404 and no content."""
+    run = completed_example_run["final"]
+    artifacts = api_a.get(f"/api/runs/{run['run_id']}/artifacts").json()["items"]
+    comparison = [a for a in artifacts if a["kind"] == "comparison"]
+    assert comparison, artifacts
+    download = comparison[0]["download"]
+    a_file = api_a.get(download)
+    assert a_file.status_code == 200 and b"APP_ID" in a_file.content and b"I32554354" in a_file.content
+    code_url = f"/api/check-runs/{run['initial_check_run_id']}/code/check-01"
+    a_code = api_a.get(code_url)
+    assert a_code.status_code == 200 and a_code.json()["code"], a_code.text[:200]
+    for url, secret in ((download, b"I32554354"), (code_url, a_code.json()["code"][:60].encode())):
+        r = api_b.get(url)
+        assert r.status_code == 404, (url, r.status_code)
+        assert secret not in r.content

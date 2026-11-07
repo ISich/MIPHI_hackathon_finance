@@ -45,6 +45,9 @@ CASES = {
     "cr3_5_pivot_without_locator": ("builtin-only", "pivot_200_no_locator",
                                     [H + "test_owner_isolation.py::test_group_locator_is_owner_scoped"],
                                     ("passed", "skipped")),  # skipped = documented 501, passed = real locator
+    "cr4b_7_download_isolation": ("builtin-only", "shared_owner_for_downloads",
+                                  [H + "test_owner_isolation.py::test_artifact_download_and_check_run_code_are_owner_scoped"],
+                                  "passed"),
 }
 # Cases whose mutation must lead to SKIP (not failure): a builtin-only backend that refuses custom configurations.
 SKIP_CASES = {
