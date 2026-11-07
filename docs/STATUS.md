@@ -12,7 +12,7 @@ Backend и ядро готовы и проверены через API на по�
 
 | Компонент | Где лежит | Состояние |
 |---|---|---|
-| Ядро `decision_diff` (D1/D4): нормализация, сравнение, 4 типа изменений, BaseFacts/PivotRollup, checks, HTML-отчёт | отдельный репозиторий `ISich/MIPHI_hackathon_finance`, ветка `SomeShit`, pin `421da26` | ✅ Готово, покрыто контрактными тестами |
+| Ядро `decision_diff` (D1/D4): нормализация, сравнение, 4 типа изменений, BaseFacts/PivotRollup, checks, HTML-отчёт | отдельный репозиторий `ISich/MIPHI_hackathon_finance`, ветка `core`, pin `421da26` | ✅ Готово, покрыто контрактными тестами |
 | Backend (D2): FastAPI + SQLite + воркер, Run/этапы/журнал, pivot, drill-down, check-runs, HTML | `backend/` | ✅ Готово. Последние влитые PR: #7 (валидация вывода процедур), #8 (гонка при остановке supervisor) |
 | UI (D3): Vue 3 + TS + Vite | `frontend/` | ⚠️ Экраны есть, но «Сводная» в `main` шлёт старую форму запроса → 422. UI не прошёл QA |
 | UI: дашборд, сводная по новому контракту, вход, таблицы датасетов | PR #10 `feat/ui-design-experiment` (8 коммитов, +6 тыс. строк, затрагивает и backend: `auth.py`, `dataset_tables.py`) | 🟡 Открыт, не влит, на стенде не проверен |

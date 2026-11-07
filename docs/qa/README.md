@@ -20,7 +20,7 @@ QA-набор лежит в корне репозитория (`tests/`, `script
 | `scripts/run_http_suite.sh MODE [pytest args]` | Поднимает backend на 127.0.0.1:18765 с временным `DD_HOME`, гонит тесты, гасит **только свой** процесс | `BACKEND_DIR` |
 | `scripts/qa_servers_alive.sh` | Показывает, не остался ли запущенным QA-сервер | — |
 
-Моков ядра нет. Пользовательские check-файлы в тестах — это **входные данные**, а не двойники ядра. Единственный двойник в смежном коде — `SimpleMart` в тестах самой ветки SomeShit; в этой ветке он не используется.
+Моков ядра нет. Пользовательские check-файлы в тестах — это **входные данные**, а не двойники ядра. Единственный двойник в смежном коде — `SimpleMart` в тестах самой ветки core; в этой ветке он не используется.
 
 Задокументированное расхождение (`DISC-NN` / `API-DISC-NN`) — это ожидаемый отказ **только при точном условии дефекта** (`support.http_api.known_defect`). Любой другой сбой (5xx, другой код, сломанная фикстура) — обычный FAIL. Когда владелец исправит дефект, условие перестанет выполняться, и тест сам проверит правильное поведение. В отчётах xfailed считаются отдельно и **не** засчитываются как успех.
 
@@ -29,7 +29,7 @@ QA-набор лежит в корне репозитория (`tests/`, `script
 ```bash
 python3 -m venv .venv                      # нужен пакет python3-venv
 .venv/bin/python -m pip install -r requirements-qa.txt   # при смене CORE_COMMIT: --force-reinstall --no-deps (версия пакета не меняется)
-scripts/fetch_core_checks.sh               # один раз; нужен fetch origin SomeShit (origin = ISich/MIPHI_hackathon_finance)
+scripts/fetch_core_checks.sh               # один раз; нужен fetch origin core (origin = ISich/MIPHI_hackathon_finance)
 (cd backend && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-dev.txt -e . && scripts/fetch_core.sh)   # backend, см. backend/README.md
 
 # 1) offline-контракты ядра/D4 (~15 с)
