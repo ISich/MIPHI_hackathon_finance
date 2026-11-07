@@ -6,9 +6,8 @@ import subprocess
 import sys
 import uuid
 
-import pytest
 
-from support.http_api import assert_envelope
+from support.http_api import assert_envelope, known_defect
 
 STAGES = ["VALIDATING", "NORMALIZING", "COMPARING", "AGGREGATING", "CHECKING", "FINALIZING"]
 
@@ -105,28 +104,44 @@ def test_post_run_without_idempotency_key_is_explicit_error(api_a, completed_exa
 
 
 def test_not_ready_before_completion_and_status_stays_responsive(api_a, fixture_root):
-    """While a Run is queued/running: summary/checks answer 409 NOT_READY, health/status answer fast."""
+    """FR-015/017, api.md: while a Run is not final, /summary AND /checks answer 409 NOT_READY on EVERY
+    observation (never 200 data, never 5xx); health/status stay fast. CR #7: no silent skip."""
     import time
 
     root, _ = fixture_root
-    ds = api_a.dataset(root, "dirs", "events/BEFORE", "events/AFTER")
-    cfg = api_a.config(ds["dataset_id"])
-    run_id = api_a.start_run(cfg["config_id"]).json()["run_id"]
-    observed_not_ready = False
-    for _ in range(200):
+    ds = api_a.dataset(root, "dirs", "big/BEFORE", "big/AFTER")  # 400 pairs: a real running window
+    run_id = api_a.start_run(api_a.config(ds["dataset_id"])["config_id"]).json()["run_id"]
+    nonfinal_observations = 0
+    early_checks = []  # /checks answered 200 while the Run was not final (stage recorded)
+    while True:
         t0 = time.monotonic()
-        status = api_a.get(f"/api/runs/{run_id}").json()["status"]
+        run = api_a.get(f"/api/runs/{run_id}").json()
+        status = run["status"]
         assert api_a.get("/health").status_code == 200
         assert time.monotonic() - t0 < 2.0
         if status in ("COMPLETED", "FAILED"):
             break
         r = api_a.get(f"/api/runs/{run_id}/summary")
-        if r.status_code == 409:
-            observed_not_ready = True
-            assert_envelope(r, 409)
+        after = api_a.get(f"/api/runs/{run_id}").json()
+        if not (after["status"] in ("COMPLETED", "FAILED") and r.status_code == 200):  # explicit race
+            assert_envelope(r, 409, "NOT_READY")
+            nonfinal_observations += 1
+        c = api_a.get(f"/api/runs/{run_id}/checks")
+        after = api_a.get(f"/api/runs/{run_id}").json()
+        if c.status_code == 200 and after["status"] not in ("COMPLETED", "FAILED"):
+            early_checks.append(after["stage"])
+        elif not (after["status"] in ("COMPLETED", "FAILED") and c.status_code == 200):
+            assert_envelope(c, 409, "NOT_READY")
         time.sleep(0.05)
-    if not observed_not_ready:
-        pytest.skip("Run finished before a not-ready window was observed (race) - NOT VERIFIED this time")
+    assert status == "COMPLETED"
+    assert nonfinal_observations >= 2, ("no not-ready window was observed on a 400-pair run; the test cannot "
+                                        "verify FR-017 - enlarge the dataset rather than skipping")
+    assert api_a.get(f"/api/runs/{run_id}/summary").status_code == 200
+    known_defect(bool(early_checks) and set(early_checks) <= {"CHECKING", "FINALIZING"},
+                 f"API-DISC-05: /runs/{{id}}/checks serves the initial report (200) while the Run is still "
+                 f"{sorted(set(early_checks))}, before COMPLETED (FR-017, api.md not-ready)")
+    assert early_checks == [], early_checks
+    assert api_a.get(f"/api/runs/{run_id}/checks").status_code == 200
 
 
 def test_missing_pair_and_invalid_json_fail_the_run(api_a, fixture_root):
