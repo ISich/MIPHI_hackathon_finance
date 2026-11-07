@@ -22,13 +22,13 @@ def _sha(text: str) -> str:
 
 
 def test_config_and_code_snapshot_survive_script_edit(api_a, examples_root, execution_mode):
+    if execution_mode != "trusted-local":  # CR2 #7: guard BEFORE any custom configuration is created
+        pytest.skip("snapshot of custom code needs trusted-local; builtin-only refusal: test_execution_policy.py")
     script = api_a.script("check", CHECK_V1)
     assert script.status_code == 201, script.text
     sid = script.json()["script_id"]
     ds = api_a.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
     cfg = api_a.config(ds["dataset_id"], checks=[{"script_id": sid}])
-    if execution_mode != "trusted-local":
-        pytest.skip("snapshot of custom code needs trusted-local; builtin-only refusal: test_execution_policy.py")
     accepted = api_a.start_run(cfg["config_id"])
     assert accepted.status_code == 202, accepted.text
     run_id = accepted.json()["run_id"]

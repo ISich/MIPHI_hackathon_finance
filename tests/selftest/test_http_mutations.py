@@ -36,6 +36,11 @@ CASES = {
                               [H + "test_owner_isolation.py::test_query_endpoints_and_group_locators_are_owner_scoped"],
                               "passed"),
 }
+# Cases whose mutation must lead to SKIP (not failure): a builtin-only backend that refuses custom configurations.
+SKIP_CASES = {
+    "cr2_7_snapshot_guard": ("builtin-only", "refuse_custom_config",
+                             [H + "test_snapshot_and_reports.py::test_config_and_code_snapshot_survive_script_edit"]),
+}
 EXTRA_ENV = {"cr2_2_bounded_wait": {"QA_RUN_TIMEOUT": "30"}}
 
 
@@ -74,3 +79,11 @@ def test_policy_control_on_real_builtin_only(servers):
     backend, fixtures = servers["builtin-only"]
     proc = run_nodes(backend.url, fixtures, CASES["cr3_policy_canary"][2], set())
     assert outcome(proc) == "passed", proc.stdout[-3000:]
+
+
+@pytest.mark.parametrize("case", sorted(SKIP_CASES))
+def test_mutation_leads_to_skip_not_failure(servers, case):
+    mode, mutation, nodes = SKIP_CASES[case]
+    backend, fixtures = servers[mode]
+    proc = run_nodes(backend.url, fixtures, nodes, {mutation})
+    assert outcome(proc) == "skipped", proc.stdout[-3000:]
