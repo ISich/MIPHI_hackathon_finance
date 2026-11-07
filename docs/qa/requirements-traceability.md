@@ -1,17 +1,19 @@
 # Матрица трассировки: требования → тесты → статус
 
-Ночь 07.11.2026, night-qa. Проверялся **актуальный код**, не документы. Статусы ниже относятся **только** к этому сочетанию SHA (прогон 12:04 МСК после исправлений по Codex CR и re-review #2; полный открытый набор — 12:16 МСК, тот же backend):
+Ночь/день 07.11.2026, night-qa. Проверялся **актуальный код**, не документы. Статусы ниже относятся **только** к этому сочетанию SHA (прогон 16:07 МСК, после исправлений по всем Codex CR):
 
-- QA-ветка: `test/contracts-night` @ `55c294d` (+ последующий docs-коммит);
-- ядро D1 + D4: `origin/SomeShit` @ `496d8cdabfe215ae1c6a740d964df9189382196b` (pinned в `requirements-qa.txt`);
-- backend D2: `feat/backend-night` @ **`cc8fc9c`** (код `dd_backend` идентичен 9546f5d), read-only снимок через `git archive`, запущенный на 127.0.0.1 в обоих режимах (`builtin-only`, `trusted-local`). Живая рабочая копия backend-night в момент прогона содержала незакоммиченный код (новый pivot) — она **не** проверялась.
+- QA-ветка: `test/contracts-night` @ `623bbf8` (+ последующий docs-коммит);
+- ядро D1 + D4: `origin/SomeShit` @ **`421da26caf030ce230778ffbd07ee1f72bf71217`** (единый pin в `CORE_COMMIT`; установленный пакет проверяется тестом `contracts/test_core_pin.py`);
+- backend D2: опубликованный `feat/backend-night` @ **`f617212`** (его CORE_COMMIT = 421da26 = установленное ядро), read-only снимок через `git archive`, на 127.0.0.1 в обоих режимах.
+
+Поправка к прежним редакциям: прогоны 11:35–12:16 МСК шли на снимке backend 9546f5d/cc8fc9c с **установленным** ядром 421da26 (не 496d8cd, как было указано).
 
 На другом SHA backend или ядра статусы нужно получить заново.
 - UI (D3) **не проверялся** — всё, что требует браузера, помечено NOT VERIFIED.
 
 Источник ID — `docs/PRD.md` (ветка `docs/implementation-foundation`, 3731ae3). Связь «задание → FR» взята из `night-orchestration/docs/requirements-traceability.md`.
 
-DISC-05 (вложенные параметры) **отозван**: в реальном жизненном цикле `run_checks` утечки нет (CR #9). Добавлен API-DISC-05.
+DISC-03, DISC-04 и API-DISC-02 **закрыты** реальным pivot/BaseFacts (ядро 421da26, backend f617212). DISC-05 (вложенные параметры) **отозван**: в реальном жизненном цикле `run_checks` утечки нет (CR #9). Добавлен API-DISC-05.
 
 Статусы:
 
@@ -31,14 +33,14 @@ DISC-05 (вложенные параметры) **отозван**: в реал�
 | FR-002 | Сопоставление по имени, полнота пар, без скрытых потерь | C `contracts/test_core_contract.py::test_ac02_*`; H `test_missing_pair_and_invalid_json_fail_the_run`, `test_invalid_json_fails_the_run` | PASS | Ядро-CLI само пишет только issues.json, exit 0 (OBS-02); backend переводит Run в FAILED (`INPUT_MISSING_PAIR`). Проверка manifest — NOT VERIFIED |
 | FR-003 | Последовательность этапов | H `test_events_monotonic_and_follow_stage_order` | PASS | VALIDATING→…→FINALIZING; SEGMENTS — substep COMPARING |
 | FR-004 | 4 CHANGE_TYPE; DIFF_FLAG по VALUE, не по бакету | C `test_ac03_*`, `test_ac06_value_change_inside_bucket_is_not_lost`, `test_mart_contract.py::test_diff_flag_zero_only_for_same` | PASS | |
-| FR-005 | Вертикальный UNION, парное представление, facts + связи с APP_ID | C `test_mart_contract.py`, `test_pivot_drilldown_matches_fact_cnt`; xfail `test_base_facts_have_change_type_dimension` | PARTIAL | normalized_union и comparison есть; BaseMembership не материализован, в pivot_facts нет CHANGE_TYPE и segments (DISC-04) |
+| FR-005 | Вертикальный UNION, парное представление, facts + связи с APP_ID | C `test_mart_contract.py`, `test_base_facts_have_change_type_dimension`, `test_pivot_drilldown_matches_fact_cnt` | PASS | D4 base_facts (421da26): BaseFacts c CHANGE_TYPE и segments, BaseMembership, CNT == |membership| |
 | FR-006 | Конфиг сохраняется и повторяется | H `test_config_and_code_snapshot_survive_script_edit`, `test_idempotent_replay_and_key_reuse` | PASS (API) | |
 | FR-007 | Интерактивная область **и** `.py`; один источник на слот | H `test_user_code.py::test_example_procedures_run_in_every_slot`, `test_uploaded_py_check_runs` | PASS (API, trusted-local) | В режиме по умолчанию `builtin-only` пользовательский код явно запрещён (403 `CUSTOM_EXECUTION_DISABLED`). UI-редактор — NOT VERIFIED |
 | FR-008 | Контракт, шаблон, пример, валидация до запуска | H `test_script_kinds_publish_contract_template_example`, `test_syntax_error_rejected_before_run` | PASS | |
 | FR-009 | 5 checks без изменения исходников; параметры редактируются | C `test_organizer_checks_events.py` (10 тестов); H `test_events_dataset_builtin_checks_fail_with_expected_app_ids`, `test_check_params_from_config_are_applied` | PARTIAL | Исполнение и FAIL на событиях — PASS. Встроенные checks отдают `params={}` вместо DEFAULTS, и UI нечего показать для редактирования (API-DISC-03) |
 | FR-010 | HTML checks + абсолютная ссылка на сводную этого Run | C `test_html_report_contract.py`; H `test_report_html_links_to_this_run` | PARTIAL | Ссылка абсолютная и ведёт на `/runs/{run_id}/reports/{report_id}`. В тексте HTML нет Run ID / report_id / параметров / пометки неполноты (DISC-10, DISC-11). Открытие из file:// в браузере — NOT VERIFIED |
-| FR-011 | Пользователь меняет раскладку сводной; distinct-итоги | H xfail `test_pivot_rollup_and_drilldown_total` | FAIL | `POST /runs/{id}/pivot` → 501 `ANALYTICS_UNAVAILABLE` (API-DISC-02). Ошибка явная, пустого «успеха» нет: `test_pivot_rollup_is_explicitly_unavailable_not_empty` PASS |
-| FR-012 | Drill-down ячейка → APP_ID → заявка; пагинация без потери total | C `test_pivot_drilldown_matches_fact_cnt`; H `test_application_card`, xfail `test_pivot_rollup_and_drilldown_total` | PARTIAL | Карточка заявки работает; drill-down возвращает страницу с `total=null` (DISC-03 / API-DISC-02) |
+| FR-011 | Пользователь меняет раскладку сводной; distinct-итоги | H `test_pivot_rollup_with_user_layout`, `test_pivot_cells_carry_locators_and_member_totals` | PASS (API) | Реальный server rollup на f617212; total ячейки = distinct membership, сверено с фикстурой. UI — NOT VERIFIED |
+| FR-012 | Drill-down ячейка → APP_ID → заявка; пагинация без потери total | C `test_pivot_drilldown_returns_full_distinct_total`; H `test_pivot_cells_carry_locators_and_member_totals`, `test_drilldown_returns_full_distinct_total`, `test_application_card` | PASS (API) | groups/{locator}/applications: полный total, пустая страница за границей сохраняет total |
 | FR-013 | Первый экран: всего, с различиями, смена решения, **направления**, без смены решения, полнота | H `test_summary_core_metrics`, xfail `test_summary_has_decision_directions` | PARTIAL | Нет направлений APPROVE→REJECT / REJECT→APPROVE и числа «различия без смены решения» (API-DISC-01) |
 | FR-014 | Журнал этапов: время, объём, обработчик, переход к коду | H `test_stage_start_events_reference_code`, `test_code_snapshot_of_executed_procedure` | PASS | |
 | FR-015 | Не блокирует UI; неизвестный total не выдаётся за % | H `test_not_ready_before_completion_and_status_stays_responsive` | PASS (API) | Status/health отвечают < 2 с во время Run. UI — NOT VERIFIED |
@@ -79,8 +81,8 @@ DISC-05 (вложенные параметры) **отозван**: в реал�
 | AC-06 | C `test_ac06_*` | PASS; политика `1` и `"1"` даёт SAME (OBS-01, Q5 открыт) |
 | AC-07 | — | BLOCKED (эталон) |
 | AC-08 | C `test_ac08_*`; независимое чтение `decisionResult.decision` из 4004 JSON | PASS: 385 смен (273 APPROVE→REJECT, 112 REJECT→APPROVE), APPROVE 657→496; совпадает с segments/summary API |
-| AC-09 | C `test_pivot_drilldown_matches_fact_cnt` | PARTIAL (один факт; union-rollup — FAIL, DISC-03/04) |
-| AC-10 | H xfail `test_pivot_rollup_and_drilldown_total` | FAIL (pivot 501) |
+| AC-09 | C `test_pivot_drilldown_*`, `test_base_facts_*`; H `test_pivot_cells_carry_locators_and_member_totals` | PASS (API) |
+| AC-10 | H `test_pivot_rollup_with_user_layout`, `test_pivot_cells_*` | PASS (API); изменяемая раскладка в UI — NOT VERIFIED |
 | AC-11 | C `test_organizer_checks_events.py`; H `test_events_dataset_builtin_checks_fail_with_expected_app_ids` | PASS |
 | AC-12 | C `test_mart_contract.py` (24 PASS) | PASS; DISC-01, DISC-02 — мелкие отклонения |
 | AC-13 | H `test_user_code.py` | PASS (API, trusted-local); UI — NOT VERIFIED |
@@ -103,7 +105,9 @@ DISC-05 (вложенные параметры) **отозван**: в реал�
 | Path traversal / symlink на валидный внешний набор (с положительным контролем) / имена загрузок с проверкой ФС / path-параметры | H `test_path_traversal.py` | PASS |
 | Политика исполнения с canary: хранение/загрузка/правка не исполняют код; 4 слота, checks в Run, check-only → 403 `CUSTOM_EXECUTION_DISABLED` без canary | H `test_execution_policy.py` | PASS (builtin-only); положительный контроль canary — trusted-local |
 | Подмена владельца заголовком (одинаковое значение у двух сессий), ссылки на чужие dataset/процедуры/checks | H `test_owner_isolation.py` | PASS |
-| Изоляция query-эндпоинтов: pivot, pivot-facts, drill-down, groups/{locator}/applications (A — контроль, B — 404 без данных A) | H `test_query_endpoints_and_group_locators_are_owner_scoped` | PASS; с **реальным** локатором — NOT VERIFIED (pivot на cc8fc9c отвечает 501, локатора нет) |
+| Изоляция query-эндпоинтов: pivot, pivot-facts, drill-down (A — контроль, B — 404 без данных A) | H `test_query_endpoints_are_owner_scoped` | PASS |
+| Изоляция groups/{locator}/applications с **реальным** локатором A | H `test_group_locator_is_owner_scoped` | PASS (f617212) |
+| Изоляция скачивания артефакта и `/check-runs/{id}/code/{slot}` | H `test_artifact_download_and_check_run_code_are_owner_scoped` | PASS |
 | Сила тестов: мутационные selftests и лаунчеры | `selftest/` (14) | PASS |
 | Idempotency-Key: повтор = тот же Run, другой body = 409 | H `test_idempotent_replay_and_key_reuse` | PASS |
 | Перезапуск сервера посреди Run | R `restart/test_restart_persistence.py` | PASS (FAILED/RUN_INTERRUPTED) |

@@ -7,7 +7,7 @@
 
 | Путь | Что проверяет | Что нужно для запуска |
 |---|---|---|
-| `tests/contracts/` | Ядро D1 и D4 (`decision_diff` @ 496d8cd): MartAPI по S5, `check_runner`, 5 исходных checks на событийных фикстурах, HTML-экспорт, семантика сравнения AC-02…AC-08 | только Python |
+| `tests/contracts/` | Ядро D1 и D4 (`decision_diff` @ SHA из `CORE_COMMIT`, сейчас 421da26): MartAPI по S5, `check_runner`, 5 исходных checks на событийных фикстурах, HTML-экспорт, семантика сравнения AC-02…AC-08 | только Python |
 | `tests/http/` | Black-box HTTP: health/ready/openapi, асинхронный Run, изоляция владельцев, path traversal, снимки, идентичность отчётов, FAIL / ошибка исполнения / 0 строк, user code | запущенный backend на loopback (`QA_BASE_URL`) |
 | `tests/restart/` | Run, прерванный SIGKILL сервера | `QA_BACKEND_DIR` (тест сам поднимает и гасит свой сервер) |
 | `tests/selftest/` | Проверка самих тестов: лаунчеры (относительные пути, занятый порт, несовпадение режима) и мутационные selftests — тест обязан упасть, когда настоящий backend стоит за прокси, вносящим ровно тот дефект, который тест должен ловить | `QA_BACKEND_DIR` |
@@ -60,4 +60,4 @@ scripts/qa_servers_alive.sh                # должно ничего не вы
 
 ## Переменные
 
-`CORE_SHA` (по умолчанию 496d8cd…), `CORE_CHECKS_DIR`, `QA_BASE_URL`, `QA_FIXTURE_ROOT`, `QA_FIXTURE_DIR`, `QA_EXAMPLES_ROOT` (по умолчанию `examples`), `QA_RUN_TIMEOUT` (по умолчанию 300 с; ограничивает и ожидание Run, и цикл readiness-теста), `QA_BACKEND_DIR`, `QA_PORT` (по умолчанию 18765), `BACKEND_PY`.
+`CORE_SHA` (по умолчанию из `CORE_COMMIT`), `CORE_CHECKS_DIR`, `QA_BASE_URL`, `QA_FIXTURE_ROOT`, `QA_FIXTURE_DIR`, `QA_EXAMPLES_ROOT` (по умолчанию `examples`), `QA_RUN_TIMEOUT` (по умолчанию 300 с; ограничивает и ожидание Run, и цикл readiness-теста), `QA_BACKEND_DIR`, `QA_PORT` (по умолчанию 18765), `BACKEND_PY`.
