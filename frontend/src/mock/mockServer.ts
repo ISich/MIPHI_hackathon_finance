@@ -153,6 +153,9 @@ const BUILTIN_CHECKS: Array<[string, string, string]> = [
   ["check_target_model_changed", "target_model_changed", "Сменилась целевая модель"],
 ];
 
+/** Stage → procedure slot whose code ref the mock attaches to the stage event. */
+const STAGE_SLOTS: Partial<Record<(typeof RUN_STAGES)[number], string>> = { NORMALIZING: "normalize", COMPARING: "compare", AGGREGATING: "aggregate" };
+
 // ------------------------------------------------------------- state
 interface MockRun extends Run {
   _ticks: number;
@@ -381,7 +384,7 @@ export function createMockFetch(opts: MockOptions) {
     const idx = RUN_STAGES.indexOf(run.stage!);
     if (idx >= 0 && idx < RUN_STAGES.length - 1) {
       run.stage = RUN_STAGES[idx + 1]!;
-      const slot = { NORMALIZING: "normalize", COMPARING: "compare", AGGREGATING: "aggregate" }[run.stage as string];
+      const slot: string | undefined = STAGE_SLOTS[run.stage];
       if (run.stage === "NORMALIZING") run.processed = 0;
       if (run.stage === "COMPARING") run.processed = APPS.length;
       pushEvent(run, `Stage ${run.stage} (MOCK)`, slot ? `${slot}@mock00000000` : null);
