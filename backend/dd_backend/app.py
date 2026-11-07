@@ -26,6 +26,58 @@ log = logging.getLogger("dd_backend")
 MAX_JSON_BODY = 2 * 1024 * 1024
 
 
+class BodyLimitMiddleware:
+    """Outermost ASGI layer: counts bytes while receiving; works without Content-Length (chunked)."""
+
+    def __init__(self, app, max_code_bytes: int) -> None:
+        self.app = app
+        self.max_code_bytes = max_code_bytes
+
+    def limit_for(self, content_type: str) -> int:
+        return self.max_code_bytes + 64 * 1024 if "multipart" in content_type else MAX_JSON_BODY
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        headers = {k.lower(): v for k, v in scope.get("headers", [])}
+        limit = self.limit_for(headers.get(b"content-type", b"").decode("latin-1"))
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body = message.get("body", b"")
+            total += len(body)
+            if total > limit:
+                return await self._reject(send, limit)
+            chunks.append(body)
+            if not message.get("more_body", False):
+                break
+        data = b"".join(chunks)
+        delivered = False
+
+        async def replay():
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {"type": "http.request", "body": data, "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)
+
+    @staticmethod
+    async def _reject(send, limit: int) -> None:
+        import json as _json
+        rid = secrets.token_hex(8)
+        payload = _json.dumps({"code": "PAYLOAD_TOO_LARGE", "message": "Request body too large",
+                               "details": {"limit_bytes": limit}, "request_id": rid}).encode()
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(payload)).encode()),
+                                (b"x-request-id", rid.encode()), (b"connection", b"close")]})
+        await send({"type": "http.response.body", "body": payload})
+
+
 def create_app() -> FastAPI:
     settings = load_settings()
     db = Database(settings.db_path)
@@ -127,4 +179,5 @@ def create_app() -> FastAPI:
 
     from .api import router
     app.include_router(router)
+    app.add_middleware(BodyLimitMiddleware, max_code_bytes=settings.max_code_bytes)  # outermost
     return app
