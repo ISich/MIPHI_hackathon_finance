@@ -136,39 +136,43 @@ def test_forged_cookie_gets_fresh_owner(base_url, a_entities):
         assert c.get(f"/api/runs/{a_entities['run']['run_id']}").status_code == 404
 
 
-def _locator_from_pivot(body):
-    """Find an opaque group locator in a pivot response (field name not frozen yet)."""
-    cells = body.get("cells", body.get("items", [])) if isinstance(body, dict) else []
-    for cell in cells:
-        for key in ("group", "locator", "group_locator", "group_id"):
-            if isinstance(cell, dict) and isinstance(cell.get(key), str) and cell[key]:
-                return cell[key]
-    return None
+def _pivot_as_a(api_a, run_id):
+    r = api_a.post(f"/api/runs/{run_id}/pivot", {"dimensions": ["PATH"], "filters": {}}, key=None)
+    unavailable = r.status_code == 501 and r.json().get("code") == "ANALYTICS_UNAVAILABLE"
+    assert r.status_code == 200 or unavailable, r.text[:300]
+    return r, unavailable
 
 
-def test_query_endpoints_and_group_locators_are_owner_scoped(api_a, api_b, completed_example_run):
-    """CR2 #4: pivot, pivot-facts, drill-down and groups/{locator}/applications exercised as A (control) and as B.
-    B must get 404 and none of A's APP_IDs, even with a real locator obtained by A."""
+def test_query_endpoints_are_owner_scoped(api_a, api_b, completed_example_run):
+    """CR2 #4: pivot, pivot-facts and drill-down exercised as A (control) and as B: B gets 404, no A data."""
     run_id = completed_example_run["final"]["run_id"]
     app = "I32554354"
-    pivot_body = {"dimensions": ["PATH"], "filters": {}}
     drill_body = {"group": {"SOURCE": "AFTER", "PATH": "decisionResult.decision"}}
-
-    a_pivot = api_a.post(f"/api/runs/{run_id}/pivot", pivot_body, key=None)
-    assert a_pivot.status_code == 200 or (a_pivot.status_code == 501 and
-                                          a_pivot.json().get("code") == "ANALYTICS_UNAVAILABLE"), a_pivot.text[:300]
+    _pivot_as_a(api_a, run_id)
     a_drill = api_a.post(f"/api/runs/{run_id}/pivot-facts/applications", drill_body, key=None)
     assert a_drill.status_code == 200 and app in a_drill.text, a_drill.text[:300]
     assert api_a.get(f"/api/runs/{run_id}/pivot-facts").status_code == 200
-    locator = _locator_from_pivot(a_pivot.json()) if a_pivot.status_code == 200 else None
-    if locator:
-        a_group = api_a.get(f"/api/runs/{run_id}/groups/{locator}/applications")
-        assert a_group.status_code == 200 and app in a_group.text, a_group.text[:300]
-    group_url = f"/api/runs/{run_id}/groups/{locator or 'qa-no-locator-available'}/applications"
-
-    for resp in (api_b.post(f"/api/runs/{run_id}/pivot", pivot_body, key=None),
+    for resp in (api_b.post(f"/api/runs/{run_id}/pivot", {"dimensions": ["PATH"], "filters": {}}, key=None),
                  api_b.post(f"/api/runs/{run_id}/pivot-facts/applications", drill_body, key=None),
-                 api_b.get(f"/api/runs/{run_id}/pivot-facts"),
-                 api_b.get(group_url)):
+                 api_b.get(f"/api/runs/{run_id}/pivot-facts")):
         assert resp.status_code == 404, (resp.request.url, resp.status_code, resp.text[:200])
         assert app not in resp.text
+
+
+def test_group_locator_is_owner_scoped(api_a, api_b, completed_example_run):
+    """CR3 #5: a REAL locator obtained by A. A successful pivot must provide one; with the documented 501 the
+    group coverage is explicitly unavailable (skip), never replaced by a fabricated locator."""
+    run_id = completed_example_run["final"]["run_id"]
+    app = "I32554354"
+    r, unavailable = _pivot_as_a(api_a, run_id)
+    if unavailable:
+        pytest.skip("pivot answers 501 ANALYTICS_UNAVAILABLE: no real group locator - group isolation NOT VERIFIED")
+    cells = r.json().get("items", r.json().get("cells"))
+    assert isinstance(cells, list) and cells, r.text[:300]
+    locators = [c.get("group_locator") for c in cells if isinstance(c, dict)]
+    assert locators and all(isinstance(x, str) and x for x in locators), f"pivot 200 without group_locator: {cells[:2]}"
+    locator = locators[0]
+    a_group = api_a.get(f"/api/runs/{run_id}/groups/{locator}/applications")
+    assert a_group.status_code == 200 and app in a_group.text, a_group.text[:300]
+    b_group = api_b.get(f"/api/runs/{run_id}/groups/{locator}/applications")
+    assert b_group.status_code == 404 and app not in b_group.text, (b_group.status_code, b_group.text[:200])
