@@ -10,6 +10,8 @@ export interface AllowedFailure {
 interface BrowserErrors {
   /** Declare an expected failed response for this test (exact method + URL pattern + status). */
   allow(rule: AllowedFailure): void;
+  /** For guard self-tests only: returns and clears what would fail the test. */
+  takeUnexpected(): string[];
 }
 
 /**
@@ -40,7 +42,7 @@ export const test = base.extend<{ browserErrors: BrowserErrors }>({
         seen.push(line);
         if (!isAllowed(r.request().method(), r.url(), r.status())) unexpected.push(line);
       });
-      await use({ allow: (rule) => allowed.push(rule) });
+      await use({ allow: (rule) => allowed.push(rule), takeUnexpected: () => unexpected.splice(0) });
       if (seen.length || unexpected.length)
         await testInfo.attach("browser-errors.txt", { body: [...seen, "-- unexpected --", ...unexpected].join("\n"), contentType: "text/plain" });
       expect(unexpected, "unexpected browser errors").toEqual([]);
