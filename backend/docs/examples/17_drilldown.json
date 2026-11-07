@@ -1,1 +1,1 @@
-{"run_id":"run_539e256565f8296fce2a","items":["I32554354"],"limit":200,"total":null,"total_note":"D4 port returns a limited page only; full distinct total is not provided yet"}
+{"run_id":"run_4eb5a1d0bcb3a973fb8d","group":{"SOURCE":"AFTER","PATH":"decisionResult.decision"},"total":1,"items":["I32554354"],"limit":50,"offset":0}

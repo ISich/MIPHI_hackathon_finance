@@ -1,1 +1,0 @@
-{"code":"ANALYTICS_UNAVAILABLE","message":"Server-side pivot rollup (dims/filters, union-membership totals, opaque group locators) is not implemented in the pinned D4 core; use /pivot-facts and /pivot-facts/applications","details":{},"request_id":"d07b275b3d03c90c"}
