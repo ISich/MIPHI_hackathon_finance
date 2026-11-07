@@ -1,6 +1,6 @@
 # Матрица трассировки: требования → тесты → статус
 
-Ночь 07.11.2026, night-qa. Проверялся **актуальный код**, не документы. Статусы ниже относятся **только** к этому сочетанию SHA (прогон 12:04 МСК, после исправлений по Codex CR и re-review #2):
+Ночь 07.11.2026, night-qa. Проверялся **актуальный код**, не документы. Статусы ниже относятся **только** к этому сочетанию SHA (прогон 12:04 МСК после исправлений по Codex CR и re-review #2; полный открытый набор — 12:16 МСК, тот же backend):
 
 - QA-ветка: `test/contracts-night` @ `55c294d` (+ последующий docs-коммит);
 - ядро D1 + D4: `origin/SomeShit` @ `496d8cdabfe215ae1c6a740d964df9189382196b` (pinned в `requirements-qa.txt`);
@@ -60,9 +60,9 @@ DISC-05 (вложенные параметры) **отозван**: в реал�
 
 | ID | Тесты | Статус | Комментарий |
 |---|---|---|---|
-| NFR-001 | — | NOT VERIFIED | Открытого набора на 2002 пары нет в `~/projects`; по заданию home не обыскивался |
-| NFR-002 | — | NOT VERIFIED | Масштаб не проверялся; 400 синтетических пар есть только в restart-тесте |
-| NFR-003 | — | NOT VERIFIED | Замеры не делались; числа из фикстур не являются бенчмарком |
+| NFR-001 | `scripts/full_dataset_run.py` | PASS (API) | Открытый набор RUN-20260827-0001, 2002 пары / 4004 JSON: Run COMPLETED, 0 missing/invalid, все 5 checks SUCCEEDED; summary API == независимый CLI ядра |
+| NFR-002 | `scripts/full_dataset_run.py` | PARTIAL | Открытый набор: 572 221 вертикальных строк, 289 533 comparison, 44 524 pivot_facts. 20 000 заявок не проверялись |
+| NFR-003 | `scripts/full_dataset_run.py` | PARTIAL (замер, не норматив) | Машина: 8 CPU, Python 3.12.3. CLI ядра (normalize+compare+segments+aggregate+CSV) 16,9 с. Run через API: accept 0,9 с, accept→COMPLETED 55,5 с, из них AGGREGATING (CSV + DuckDB mart) ≈ 41,9 с, CHECKING ≈ 3,2 с. Планки PRD не сверялись |
 | NFR-004 | — | BLOCKED | Нужен эталон организаторов |
 | NFR-005 | H `test_owner_isolation.py`, `test_two_sessions_run_concurrently_without_mixing` | PASS (API) | |
 | NFR-006 | H `test_custom_checks_refused_explicitly_when_execution_disabled`, `test_config_and_code_snapshot_*` (ветка builtin-only) | PASS (политика) | По умолчанию builtin-only; trusted-local — явный opt-in. Изоляция Python как sandbox **не** проверялась и не заявляется |
@@ -71,14 +71,14 @@ DISC-05 (вложенные параметры) **отозван**: в реал�
 
 | AC | Тесты | Статус |
 |---|---|---|
-| AC-01 | — | NOT VERIFIED (нет полного набора, нет UI) |
+| AC-01 | `scripts/full_dataset_run.py` | PASS через API (2002 пары, 4004 файла, финальный отчёт и ссылки); через UI — NOT VERIFIED |
 | AC-02 | C `test_ac02_*`; H `test_missing_pair_*`, `test_invalid_json_*`, `test_failed_run_report_data_*` | PASS (API) |
 | AC-03 | C `test_ac03_*`, `test_mart_contract.py` | PASS |
 | AC-04 | C `test_ac04_*` | PASS (ядро) / PARTIAL (через приложение, API-DISC-04) |
 | AC-05 | C `test_ac05_*` | PASS |
 | AC-06 | C `test_ac06_*` | PASS; политика `1` и `"1"` даёт SAME (OBS-01, Q5 открыт) |
 | AC-07 | — | BLOCKED (эталон) |
-| AC-08 | C `test_ac08_*` | PASS (на фикстуре; независимое чтение на полном наборе — NOT VERIFIED) |
+| AC-08 | C `test_ac08_*`; независимое чтение `decisionResult.decision` из 4004 JSON | PASS: 385 смен (273 APPROVE→REJECT, 112 REJECT→APPROVE), APPROVE 657→496; совпадает с segments/summary API |
 | AC-09 | C `test_pivot_drilldown_matches_fact_cnt` | PARTIAL (один факт; union-rollup — FAIL, DISC-03/04) |
 | AC-10 | H xfail `test_pivot_rollup_and_drilldown_total` | FAIL (pivot 501) |
 | AC-11 | C `test_organizer_checks_events.py`; H `test_events_dataset_builtin_checks_fail_with_expected_app_ids` | PASS |
@@ -88,9 +88,9 @@ DISC-05 (вложенные параметры) **отозван**: в реал�
 | AC-15 | C/H HTML-тесты | PARTIAL (ссылка да; Run ID в тексте нет; file:// в браузере NOT VERIFIED) |
 | AC-16 | H `test_not_ready_*`, `test_stage_start_events_*`, `test_config_and_code_snapshot_*` | PASS (API); API-DISC-05 для `/checks` до COMPLETED |
 | AC-17 | H `test_owner_isolation.py` | PASS (API); UI — NOT VERIFIED; Python-изоляция — NOT VERIFIED |
-| AC-18 | H `test_config_and_code_snapshot_*`, `test_summary_comes_from_real_core` | PARTIAL (сверка с CLI; повтор «один в один» по строкам не сравнивался) |
+| AC-18 | H `test_config_and_code_snapshot_*`, `test_summary_comes_from_real_core`; полный прогон | PARTIAL: на открытом наборе sha256 артефактов comparison/normalized_union/pivot_facts/segments из Run совпали с хешами отдельного CLI-прогона (core-verification.md); построчная сверка двух Run через API не делалась |
+| AC-20 | полный прогон | PARTIAL: реальные времена и машина зафиксированы (см. NFR-003), без сопоставления с планками |
 | AC-19 | — | NOT VERIFIED |
-| AC-20 | — | NOT VERIFIED |
 | AC-21 | — | DEFERRED |
 | AC-22 | — | NOT VERIFIED (UI) |
 
