@@ -1,5 +1,7 @@
 # Backend shutdown recovery — review handoff
 
+> **Статус:** влито в `main` — PR #8 (`codex/backend-shutdown-recovery`): коммит 6000464; финальный `main` = 010f42a. Ниже — исходная handoff-заметка; фразы «no commit/push/merge» относятся к моменту её написания.
+
 Branch: `codex/backend-shutdown-recovery`, based directly on main
 `42326824d0776b2dacace6a6819f02397c3676b9`.
 This is separate from validation commit `9cb959c`; it changes no pipeline validators,
