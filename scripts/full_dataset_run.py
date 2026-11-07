@@ -35,6 +35,17 @@ def organizer_check_ids(checks_dir: Path) -> set[str]:
 def acceptance_problems(report: dict, expected_check_ids: set[str]) -> list[str]:
     """CR3 #4: why the full run is NOT accepted (empty = accepted). An empty execution list is a failure."""
     problems = []
+    if report.get("cli", {}).get("returncode") != 0:
+        problems.append(f"core CLI returncode {report.get('cli', {}).get('returncode')!r}")
+    for side in ("api_summary", "cli_summary"):
+        values = report.get(side) or {}
+        missing = [k for k in KEYS if values.get(k) is None]
+        if missing:
+            problems.append(f"{side} missing {missing}")
+        elif not (isinstance(values["total_apps"], int) and values["total_apps"] > 0):
+            problems.append(f"{side} total_apps invalid {values['total_apps']!r}")
+    if report.get("http_errors"):
+        problems.append(f"HTTP errors {report['http_errors']}")
     if report.get("run", {}).get("status") != "COMPLETED":
         problems.append(f"run status {report.get('run', {}).get('status')!r}")
     if not report.get("api_equals_cli"):
@@ -85,18 +96,27 @@ def main(results: str, out_dir: str) -> int:
         for e in events:
             if e["stage"] and e["stage"] not in report["stage_first_ts"]:
                 report["stage_first_ts"][e["stage"]] = e["ts"]
+        report["http_errors"] = []
+
+        def get_json(url):
+            resp = api.get(url, params={"limit": 2000} if url.endswith("/events") else None)
+            if resp.status_code != 200:
+                report["http_errors"].append(f"GET {url} -> {resp.status_code}")
+                return {}
+            return resp.json()
+
         if run["status"] == "COMPLETED":
-            summary = api.get(f"/api/runs/{run['run_id']}/summary").json()
+            summary = get_json(f"/api/runs/{run['run_id']}/summary")
             report["api_summary"] = {k: summary.get(k) for k in (*KEYS, "pairs", "pipeline_seconds", "rows")}
-            checks = api.get(f"/api/runs/{run['run_id']}/checks").json()
-            report["checks"] = {"completeness": checks["completeness"],
+            checks = get_json(f"/api/runs/{run['run_id']}/checks")
+            report["checks"] = {"completeness": checks.get("completeness"),
                                 "executions": [{k: e.get(k) for k in ("check_id", "execution_status", "rows_count",
-                                                                       "duration_seconds")} for e in checks["executions"]],
+                                                                       "duration_seconds")} for e in checks.get("executions", [])],
                                 "rows": [{k: r[k] for k in ("LABEL", "ARGUMENT", "CNT", "TOTAL", "METRIC", "RESULT",
-                                                            "CONFIDENCE")} for r in checks["checks"]]}
-            report["report_status"] = api.get(f"/api/reports/{run['initial_report_id']}").json().get("status")
+                                                            "CONFIDENCE")} for r in checks.get("checks", [])]}
+            report["report_status"] = get_json(f"/api/reports/{run['initial_report_id']}").get("status")
             report["artifacts"] = [{k: a[k] for k in ("kind", "rows", "bytes", "sha256")}
-                                   for a in api.get(f"/api/runs/{run['run_id']}/artifacts").json()["items"]]
+                                   for a in get_json(f"/api/runs/{run['run_id']}/artifacts").get("items", [])]
     finally:
         backend.stop()
 
@@ -111,8 +131,8 @@ def main(results: str, out_dir: str) -> int:
         cli_summary = json.loads((cli_out / "summary.json").read_text(encoding="utf-8"))
         report["cli_summary"] = {k: cli_summary.get(k) for k in KEYS}
         report["cli_issues"] = json.loads((cli_out / "issues.json").read_text(encoding="utf-8"))
-    api_s = report.get("api_summary") or {}
-    report["api_equals_cli"] = bool(api_s) and all(api_s.get(k) == report.get("cli_summary", {}).get(k) for k in KEYS)
+    api_s, cli_s = report.get("api_summary") or {}, report.get("cli_summary") or {}
+    report["api_equals_cli"] = all(api_s.get(k) is not None and api_s.get(k) == cli_s.get(k) for k in KEYS)
     report["acceptance_problems"] = acceptance_problems(report, organizer_check_ids(organizer_checks()))
     (out / "full_run.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     ok = not report["acceptance_problems"]
