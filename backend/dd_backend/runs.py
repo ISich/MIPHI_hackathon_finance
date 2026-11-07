@@ -129,8 +129,9 @@ class RunService:
                 "after": {k: str(v) for k, v in sorted(after.items())},
             }
             (snap_dir / "inputs.json").write_text(json.dumps(inputs, ensure_ascii=False))
+            from .readiness import core_info
             (snap_dir / "config.json").write_text(json.dumps(
-                {"config": cfg, "procedures": procs, "checks": checks}, ensure_ascii=False, indent=1))
+                {"config": cfg, "procedures": procs, "checks": checks, "core": core_info()}, ensure_ascii=False, indent=1))
         except BaseException:
             shutil.rmtree(rdir, ignore_errors=True)
             raise

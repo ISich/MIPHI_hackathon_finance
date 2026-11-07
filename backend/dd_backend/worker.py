@@ -505,6 +505,14 @@ class Worker:
     # ------------------------------------------------------------- checks
     def execute_check_run(self, cr_id: str) -> None:
         c = self.db.one("SELECT run_id FROM check_runs WHERE check_run_id=?", (cr_id,))
+        from .readiness import core_info
+        cfg = json.loads((self.settings.runs_dir / c["run_id"] / "snapshot" / "config.json").read_text("utf-8"))
+        accepted, installed = (cfg.get("core") or {}).get("commit"), core_info().get("commit")
+        if not accepted or accepted != installed:
+            with self._job_tx() as con:
+                self._fail_check_run_tx(con, cr_id, "CORE_VERSION_MISMATCH",
+                                        "installed core differs from the core that produced this data run")
+            return
         self._run_checks(c["run_id"], cr_id, initial=False)
 
     def _run_checks(self, run_id: str, cr_id: str, *, initial: bool) -> bool:

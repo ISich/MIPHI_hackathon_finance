@@ -11,6 +11,7 @@ import csv
 import dataclasses
 import errno
 import hashlib
+import importlib
 import importlib.util
 import json
 import os
@@ -95,6 +96,27 @@ def build_procedures(run_dir: Path, procs: dict[str, dict]) -> dict[str, Callabl
         else:
             out[slot] = lambda rows, segs, _f=fn, _p=params: _f(rows, segs, dict(_p))
     return out
+
+
+def verify_builtin_runtime(cfg: dict) -> None:
+    """Refuse to run if the installed core is not the code accepted in the snapshot."""
+    import inspect
+
+    from .readiness import core_info
+    from .registry import BUILTIN_PROCEDURES
+    accepted = (cfg.get("core") or {}).get("commit")
+    installed = core_info().get("commit")
+    if not accepted or accepted != installed:
+        raise StageFailure("CORE_VERSION_MISMATCH",
+                           f"installed core commit {str(installed)[:12]} differs from the accepted {str(accepted)[:12]}")
+    for slot, spec in cfg["procedures"].items():
+        if spec["source"] != "builtin":
+            continue
+        module = BUILTIN_PROCEDURES[spec["builtin_ref"]]["module"]
+        actual = hashlib.sha256(inspect.getsource(importlib.import_module(module)).encode()).hexdigest()
+        if actual != spec["code_sha256"]:
+            raise StageFailure("CORE_VERSION_MISMATCH",
+                               f"built-in {slot} code ({module}) differs from the accepted snapshot")
 
 
 def _require_rows(rows: Any, columns: list[str], what: str) -> list[dict]:
@@ -199,6 +221,7 @@ def run(run_dir: Path, emit: Emitter) -> dict:
     pairs = sorted(before_files)
     emit.send(type="event", level="INFO", message=f"{len(pairs)} complete pairs, fingerprint verified",
               processed=len(pairs), total=len(pairs))
+    verify_builtin_runtime(cfg)
     fns = build_procedures(run_dir, procs)
 
     # --------------------------------------------------------- NORMALIZING
