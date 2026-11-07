@@ -27,7 +27,7 @@ function commit(row: number, col: number) {
   if (editing.value !== `${row}:${col}`) return;
   const field = props.dataset.fields[col]!;
   const value = field.type === "number" ? numberValue(draft.value) : draft.value;
-  if (field.type === "number" && draft.value.trim() && value === null) { error.value = `«${field.name}»: введите число или оставьте ячейку пустой.`; return; }
+  if (field.type === "number" && draft.value.trim() && value === null) { error.value = `«${field.name}»: введите число поддерживаемой точности или оставьте ячейку пустой. Исходное значение не изменено.`; return; }
   const rows = props.dataset.rows.slice(); rows[row] = [...rows[row]!]; rows[row]![col] = value;
   editing.value = ""; error.value = ""; change(rows);
 }

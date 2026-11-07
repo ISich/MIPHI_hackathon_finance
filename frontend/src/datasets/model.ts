@@ -10,12 +10,30 @@ export const MAX_ROWS = 20000;
 export const MAX_COLUMNS = 200;
 export const operations: Record<Operation, string> = { count: "Количество строк", sum: "Сумма", avg: "Среднее", min: "Минимум", max: "Максимум" };
 
+/** A decimal's value without spelling differences (trailing zeroes or exponent notation).
+ * Do not expand exponents: even untrusted, very small/large values stay bounded by input size.
+ */
+function decimalKey(text: string): string | null {
+  const match = /^([+-]?)(\d+(?:\.\d*)?|\.\d+)(?:e([+-]?\d+))?$/i.exec(text);
+  if (!match) return null;
+  const [whole, fraction = ""] = match[2]!.split(".");
+  const digits = (whole + fraction).replace(/^0+/, "");
+  if (!digits) return "0";
+  const significant = digits.replace(/0+$/, "");
+  const exponent = Number(match[3] ?? 0) - fraction.length + digits.length - significant.length;
+  if (!Number.isSafeInteger(exponent)) return null;
+  return `${match[1] === "-" ? "-" : ""}${significant}e${exponent}`;
+}
+
 export function numberValue(value: Value | undefined): number | null {
   if (typeof value === "number") return Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value)) ? value : null;
   if (typeof value !== "string" || !value.trim()) return null;
   const text = value.trim().replace(/[\s\u00a0\u202f]/g, "").replace(",", ".");
   const n = Number(text);
-  return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text) && Number.isFinite(n) && (!Number.isInteger(n) || Number.isSafeInteger(n)) ? n : null;
+  if (!Number.isFinite(n) || (Number.isInteger(n) && !Number.isSafeInteger(n))) return null;
+  // Accept a string only if Number's shortest decimal representation preserves its decimal value.
+  // This allows ordinary decimals (0.1) but rejects underflow and lost fractional/significant digits.
+  return decimalKey(text) === decimalKey(String(n)) ? n : null;
 }
 
 export function fromMatrix(name: string, matrix: Value[][], source: string): TableDataset {

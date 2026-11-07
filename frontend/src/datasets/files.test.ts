@@ -2,8 +2,15 @@
 import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
 import { readTableFile } from "./files";
+import { fromMatrix } from "./model";
 
 describe("table import", () => {
+  it("preserves precision-sensitive CSV cells through parsing and type inference", async () => {
+    const sheets = await readTableFile(new File(["Value\n1e-400\n9007199254740990.5\n"], "precision.csv"));
+    const table = fromMatrix("precision", sheets[0]!.matrix, "precision.csv");
+    expect(table.fields[0]!.type).toBe("text");
+    expect(table.rows).toEqual([["1e-400"], ["9007199254740990.5"]]);
+  });
   it("reads semicolon CSV with BOM, quoted newlines and Russian decimals", async () => {
     const sheets = await readTableFile(new File(['\uFEFFРегион;Сумма;Комментарий\r\nМосква;"1 200,50";"две\nстроки"\r\n'], "data.csv"));
     expect(sheets[0]!.matrix).toEqual([["Регион", "Сумма", "Комментарий"], ["Москва", "1 200,50", "две\nстроки"]]);

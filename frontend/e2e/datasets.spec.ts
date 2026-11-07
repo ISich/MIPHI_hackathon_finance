@@ -9,6 +9,33 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Таблицы и сводные", exact: true })).toBeVisible();
 });
 
+test("precision-sensitive CSV values survive import, rejected numeric edits, export and reload", async ({ page }) => {
+  await page.getByRole("button", { name: "Импорт данных", exact: true }).click();
+  await page.getByLabel("Файл таблицы", { exact: true }).setInputFiles({ name: "precision.csv", mimeType: "text/csv", buffer: Buffer.from("Сумма;Исходное значение\n10;1e-400\n20;9007199254740990.5\n") });
+  await page.getByRole("button", { name: "Импортировать", exact: true }).click();
+  const table = page.getByRole("table", { name: "Данные таблицы", exact: true });
+  await expect(table).toContainText("1e-400");
+  await expect(table).toContainText("9007199254740990.5");
+  for (const value of ["1e-400", "9007199254740990.5"]) {
+    await page.getByRole("button", { name: "Изменить: Сумма, строка 1", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Значение: Сумма, строка 1", exact: true });
+    await input.fill(value); await input.press("Enter");
+    await expect(page.getByRole("alert")).toContainText("поддерживаемой точности");
+    await input.press("Escape");
+    await expect(page.getByRole("button", { name: "Изменить: Сумма, строка 1", exact: true })).toHaveText("10");
+  }
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "CSV", exact: true }).click()]);
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const exported = Buffer.concat(chunks).toString("utf8");
+  expect(exported).toContain("10;1e-400");
+  expect(exported).toContain("20;9007199254740990.5");
+  await page.reload();
+  await expect(table).toContainText("1e-400");
+  await expect(table).toContainText("9007199254740990.5");
+});
+
 test("import CSV, edit cells, aggregate all rows, export and persist settings", async ({ page }, info) => {
   await page.getByRole("button", { name: "Импорт данных", exact: true }).click();
   await page.getByLabel("Файл таблицы", { exact: true }).setInputFiles({ name: "Портфель.csv", mimeType: "text/csv", buffer: Buffer.from('Регион;Продукт;Сумма\nМосква;Кредит;10\nМосква;Ипотека;20\nКазань;Кредит;90\nКазань;Ипотека;\n') });

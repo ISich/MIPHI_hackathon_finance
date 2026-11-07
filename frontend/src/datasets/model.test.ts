@@ -2,6 +2,22 @@ import { describe, expect, it } from "vitest";
 import { buildPivot, fromMatrix, numberValue } from "./model";
 
 describe("dataset tables", () => {
+  it.each(["1e-400", "-1e-400", "9007199254740990.5", "-9007199254740990.5", "0.100000000000000000001", "1.0000000000000001", "4e-324", "1e400"])("preserves unsupported decimal %s as text instead of rounding it", value => {
+    expect(numberValue(value)).toBeNull();
+    const table = fromMatrix("precision", [["Value"], [value], ["12.5"]], "test");
+    expect(table.fields[0]!.type).toBe("text");
+    expect(table.rows).toEqual([[value], ["12.5"]]);
+    expect(table.pivot.operation).toBe("count");
+  });
+
+  it.each([
+    ["1 234,50", 1234.5], [".5", 0.5], ["+001.2300e2", 123], ["12300e-2", 123],
+    ["0.1", 0.1], ["1.2345678901234567", 1.2345678901234567], ["5e-324", 5e-324],
+    ["9007199254740991", Number.MAX_SAFE_INTEGER], ["0e999999999999999999999", 0],
+  ])("accepts supported decimal notation %s", (value, expected) => {
+    expect(numberValue(String(value))).toBe(expected);
+  });
+
   it("handles localized numbers, preserves identifiers and deduplicates headers", () => {
     const table = fromMatrix("data", [["ID", "Сумма", "Сумма", ""], ["001", "1 234,50", 10, null], ["002", "", 20, "text"]], "test");
     expect(table.fields.map(f => f.name)).toEqual(["ID", "Сумма", "Сумма (2)", "Столбец 4"]);

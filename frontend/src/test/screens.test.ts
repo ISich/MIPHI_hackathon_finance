@@ -21,6 +21,7 @@ const { default: SummaryView } = await import("../report-summary/SummaryView.vue
 const { default: NewRun } = await import("../run-config/NewRun.vue");
 const { default: RunsList } = await import("../run-monitor/RunsList.vue");
 const { default: DatasetPivot } = await import("../datasets/DatasetPivot.vue");
+const { default: DataGrid } = await import("../datasets/DataGrid.vue");
 const { fromMatrix } = await import("../datasets/model");
 const { default: GroupApplications } = await import("../drilldown/GroupApplications.vue");
 const { default: FactApplications } = await import("../drilldown/FactApplications.vue");
@@ -205,6 +206,22 @@ describe("Explicit report context survives navigation", () => {
 });
 
 describe("Dataset pivot calculation errors", () => {
+  it.each(["1e-400", "9007199254740990.5"])("rejects an edit to %s without changing the existing numeric cell", async value => {
+    const dataset = fromMatrix("numbers", [["Сумма"], [10]], "test");
+    const w = mount(DataGrid, { props: { dataset } });
+    await w.get('[aria-label="Изменить: Сумма, строка 1"]').trigger("click");
+    const input = w.get('input[aria-label="Значение: Сумма, строка 1"]');
+    await input.setValue(value);
+    await input.trigger("keydown.enter");
+    expect(w.get('[role="alert"]').text()).toContain("поддерживаемой точности");
+    expect(w.emitted("change")).toBeUndefined();
+    expect(dataset.rows).toEqual([[10]]);
+    expect((input.element as HTMLInputElement).value).toBe(value);
+    await input.trigger("keydown.esc");
+    expect(w.get('[aria-label="Изменить: Сумма, строка 1"]').text()).toBe("10");
+    w.unmount();
+  });
+
   it("shows an unsafe subtotal as an error, blocks export and recovers with another aggregation", async () => {
     const dataset = fromMatrix("groups", [["Group", "Value"], ["A", Number.MAX_SAFE_INTEGER], ["A", 2], ["B", -Number.MAX_SAFE_INTEGER]], "test");
     const w = mount(DatasetPivot, { props: { dataset }, attachTo: document.body.appendChild(document.createElement("div")) });
