@@ -58,3 +58,23 @@ def test_cr2_1_drilldown_tests_accept_the_target_contract(monkeypatch, tmp_path)
         fact = [f for f in mart.pivot(limit=100000) if f["CNT"] not in (2,)][0]  # len(dict)==2 keys
         group = {k: fact[k] for k in ("PATH", "ARRAY_KEY", "VALUE_ADJUSTED", "DIFF_FLAG", "SOURCE")}
         assert len(mart.pivot_app_ids(group, limit=10000)) != fact["CNT"]  # the old assertion would fail here
+
+
+def test_cr2_3_upload_probe_boundary(tmp_path):
+    """CR2 #3: a sanitized copy inside DD_HOME is allowed; a copy at an escape target outside the scanned work
+    dir is caught. The 08714b9 logic (any evil_qa.py under the work dir) got both wrong."""
+    from support.fs_probe import forbidden_copies
+
+    outer = tmp_path / "outer"
+    work = outer / "work"
+    home = work / "home"
+    (home / "scripts").mkdir(parents=True)
+    name, marker = "qa_trav_x.py", b"MARK"
+    (home / "scripts" / name).write_bytes(b"# MARK")          # permitted: inside DD_HOME
+    old_logic = list(work.rglob(name))                        # what 08714b9 flagged
+    assert old_logic and forbidden_copies(home, name, marker, scan_root=work) == []
+    (outer / name).write_bytes(b"# MARK")                    # escape target OUTSIDE the work dir
+    assert outer / name not in list(work.rglob(name))        # 08714b9 never looked there
+    assert forbidden_copies(home, name, marker, scan_root=work) == [outer / name]
+    (work / "stray.txt").write_bytes(b"MARK")                 # marker content leaked inside work, outside home
+    assert work / "stray.txt" in forbidden_copies(home, name, marker, scan_root=work)

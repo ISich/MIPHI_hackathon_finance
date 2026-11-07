@@ -61,25 +61,27 @@ def test_path_params_do_not_reach_filesystem(api_a, completed_example_run, tail)
     assert "root:x:" not in r.text and "SQLite format" not in r.text
 
 
-def test_uploaded_script_filename_cannot_traverse(api_a):
-    """CR #6: check filesystem effects, not only returned metadata."""
-    marker = f"QA_TRAVERSAL_MARKER_{uuid.uuid4().hex}"
-    files = {"file": ("../../evil_qa.py", f"# {marker}\nx = 1\n".encode(), "text/x-python")}
-    r = api_a.http.post("/api/scripts/upload", data={"kind": "check", "name": "evil"}, files=files)
-    if r.status_code == 201:
-        assert "/" not in (r.json().get("filename") or "") and ".." not in (r.json().get("filename") or ""), r.json()
-    else:
-        assert_envelope(r, (400, 422))
+@pytest.mark.parametrize("style", ["relative", "absolute"])
+def test_uploaded_script_filename_cannot_traverse(api_a, style):
+    """CR2 #3: unique filename; storage inside DD_HOME is permitted (sanitized or not); a copy at any controlled
+    escape target (ancestors of DD_HOME, the absolute target) or elsewhere in the work dir is forbidden."""
+    from support.fs_probe import forbidden_copies
+
     home = os.environ.get("QA_SERVER_HOME")
     if not home:
-        pytest.skip("QA_SERVER_HOME not set: filesystem effects not observable - metadata only checked")
+        pytest.skip("QA_SERVER_HOME not set: filesystem effects not observable - NOT VERIFIED")
     home_path = Path(home).resolve()
-    scope = home_path.parent  # the launcher's private work dir: home, fixtures, logs
-    stray = [p for p in scope.rglob("evil_qa.py")]
-    assert stray == [], stray
-    for path in scope.rglob("*"):
-        if path.is_file() and not path.is_relative_to(home_path) and path.stat().st_size < 1_000_000:
-            assert marker.encode() not in path.read_bytes(), f"upload content written outside DD_HOME: {path}"
+    name = f"qa_trav_{uuid.uuid4().hex}.py"
+    marker = f"QA_TRAVERSAL_MARKER_{uuid.uuid4().hex}".encode()
+    sent = "../" * 8 + name if style == "relative" else str(home_path.parent / name)
+    r = api_a.http.post("/api/scripts/upload", data={"kind": "check", "name": "trav"},
+                        files={"file": (sent, b"# " + marker + b"\nx = 1\n", "text/x-python")})
+    if r.status_code == 201:
+        stored = r.json().get("filename") or ""
+        assert "/" not in stored and ".." not in stored, r.json()
+    else:
+        assert_envelope(r, (400, 422))
+    assert forbidden_copies(home_path, name, marker, scan_root=home_path.parent) == []
 
 
 def test_uploaded_non_python_rejected(api_a):
