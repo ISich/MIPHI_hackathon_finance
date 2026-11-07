@@ -103,45 +103,73 @@ def test_post_run_without_idempotency_key_is_explicit_error(api_a, completed_exa
     assert_envelope(api_a.post("/api/runs", {"configuration_id": cfg}, key=None), 400)
 
 
+FINAL_STATES = ("COMPLETED", "FAILED")
+
+
+def _is_initial_report(body, run) -> bool:
+    """A real, well-formed copy of THIS run's initial report (identity + structure)."""
+    return (isinstance(body, dict)
+            and body.get("report_id") == run["initial_report_id"]
+            and body.get("run_id") == run["run_id"]
+            and body.get("check_run_id") == run["initial_check_run_id"]
+            and body.get("dataset_revision_id") == run["dataset_revision_id"]
+            and body.get("completeness") in ("COMPLETE", "INCOMPLETE", "NO_CHECKS_SELECTED")
+            and isinstance(body.get("checks"), list) and isinstance(body.get("executions"), list))
+
+
 def test_not_ready_before_completion_and_status_stays_responsive(api_a, fixture_root):
-    """FR-015/017, api.md: while a Run is not final, /summary AND /checks answer 409 NOT_READY on EVERY
-    observation (never 200 data, never 5xx); health/status stay fast. CR #7: no silent skip."""
+    """FR-015/017, api.md: while a Run is not final, /summary answers 409 NOT_READY on EVERY observation and
+    /checks answers 409 (or - known defect API-DISC-05 - an exact early copy of the initial report); health and
+    status stay fast. Bounded by QA_RUN_TIMEOUT (CR2 #2); xfail only for the exact early-report condition after
+    all independent completion assertions (CR2 #6)."""
+    import os
     import time
 
+    timeout = float(os.environ.get("QA_RUN_TIMEOUT", "300"))
     root, _ = fixture_root
     ds = api_a.dataset(root, "dirs", "big/BEFORE", "big/AFTER")  # 400 pairs: a real running window
     run_id = api_a.start_run(api_a.config(ds["dataset_id"])["config_id"]).json()["run_id"]
     nonfinal_observations = 0
-    early_checks = []  # /checks answered 200 while the Run was not final (stage recorded)
+    early = []  # (stage, body) of /checks answering 200 while the Run was not final
+    deadline = time.monotonic() + timeout
+    run = {}
     while True:
         t0 = time.monotonic()
         run = api_a.get(f"/api/runs/{run_id}").json()
-        status = run["status"]
         assert api_a.get("/health").status_code == 200
         assert time.monotonic() - t0 < 2.0
-        if status in ("COMPLETED", "FAILED"):
+        if run["status"] in FINAL_STATES:
             break
+        assert time.monotonic() < deadline, (f"run not final after {timeout:.0f}s; last observed "
+                                             f"status={run['status']} stage={run.get('stage')}")
         r = api_a.get(f"/api/runs/{run_id}/summary")
         after = api_a.get(f"/api/runs/{run_id}").json()
-        if not (after["status"] in ("COMPLETED", "FAILED") and r.status_code == 200):  # explicit race
+        if not (after["status"] in FINAL_STATES and r.status_code == 200):  # explicit completion race
             assert_envelope(r, 409, "NOT_READY")
             nonfinal_observations += 1
         c = api_a.get(f"/api/runs/{run_id}/checks")
         after = api_a.get(f"/api/runs/{run_id}").json()
-        if c.status_code == 200 and after["status"] not in ("COMPLETED", "FAILED"):
-            early_checks.append(after["stage"])
-        elif not (after["status"] in ("COMPLETED", "FAILED") and c.status_code == 200):
+        if c.status_code == 200 and after["status"] not in FINAL_STATES:
+            early.append((after["stage"], c.json()))
+        elif not (after["status"] in FINAL_STATES and c.status_code == 200):
             assert_envelope(c, 409, "NOT_READY")
         time.sleep(0.05)
-    assert status == "COMPLETED"
+
+    # Independent completion assertions run BEFORE any known-defect handling.
+    assert run["status"] == "COMPLETED", (run["status"], run.get("stage"), run.get("error"))
     assert nonfinal_observations >= 2, ("no not-ready window was observed on a 400-pair run; the test cannot "
                                         "verify FR-017 - enlarge the dataset rather than skipping")
     assert api_a.get(f"/api/runs/{run_id}/summary").status_code == 200
-    known_defect(bool(early_checks) and set(early_checks) <= {"CHECKING", "FINALIZING"},
-                 f"API-DISC-05: /runs/{{id}}/checks serves the initial report (200) while the Run is still "
-                 f"{sorted(set(early_checks))}, before COMPLETED (FR-017, api.md not-ready)")
-    assert early_checks == [], early_checks
-    assert api_a.get(f"/api/runs/{run_id}/checks").status_code == 200
+    final_checks = api_a.get(f"/api/runs/{run_id}/checks")
+    assert final_checks.status_code == 200 and _is_initial_report(final_checks.json(), run), final_checks.text[:300]
+
+    # Every early 200 must be exactly the published initial report, else it is a real failure, not API-DISC-05.
+    for stage, body in early:
+        assert stage in ("CHECKING", "FINALIZING"), f"/checks answered 200 already in stage {stage}"
+        assert _is_initial_report(body, run) and body == final_checks.json(), (stage, str(body)[:300])
+    known_defect(bool(early),
+                 f"API-DISC-05: /runs/{{id}}/checks serves the (complete, correct) initial report while the Run is "
+                 f"still {sorted({s for s, _ in early})}, before COMPLETED (FR-017, api.md not-ready)")
 
 
 def test_missing_pair_and_invalid_json_fail_the_run(api_a, fixture_root):

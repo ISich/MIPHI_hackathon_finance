@@ -10,6 +10,12 @@ Mutations:
                               reused for every later request carrying the same header value
   lie_mode_builtin          - /api/session reports execution_mode=builtin-only although the server is
                               trusted-local (custom code really executes)
+  stuck_running             - GET /api/runs/{id} always reports status RUNNING / stage NORMALIZING
+  checks_garbage_while_running - while the upstream Run is in CHECKING/FINALIZING (not final),
+                              /runs/{id}/checks answers 200 {} (malformed early report)
+  shared_owner_for_query    - pivot / pivot-facts/applications / groups/{g}/applications ignore the caller's
+                              session: the first cookie seen on any of them is used for all later calls
+  refuse_custom_config      - POST /api/configurations carrying "checks" answers 403 CUSTOM_EXECUTION_DISABLED
 """
 from __future__ import annotations
 
@@ -58,6 +64,16 @@ def make_proxy(upstream: str, mutations: set[str]) -> ThreadingHTTPServer:
                 if cookie:
                     headers = {k: v for k, v in headers.items() if k.lower() != "cookie"}
                     headers["cookie"] = cookie
+            if "shared_owner_for_query" in mutations and re.fullmatch(
+                    r"/api/runs/[^/]+/(pivot|pivot-facts/applications|groups/[^/]+/applications)", path.split("?")[0]):
+                with lock:
+                    cookie = owner_cookie.setdefault("__query__", self.headers.get("cookie", ""))
+                headers = {k: v for k, v in headers.items() if k.lower() != "cookie"}
+                headers["cookie"] = cookie
+            if "refuse_custom_config" in mutations and method == "POST" and path == "/api/configurations" \
+                    and b'"checks"' in body:
+                return self._json(403, {"code": "CUSTOM_EXECUTION_DISABLED", "message": "disabled", "details": {},
+                                        "request_id": "x"})
             if "pivot_500" in mutations and method == "POST" and re.fullmatch(r"/api/runs/[^/]+/pivot", path):
                 return self._json(500, {"code": "INTERNAL_ERROR", "message": "boom", "details": {}, "request_id": "x"})
             resp = upstream_request(method, path, body, headers)
@@ -66,6 +82,18 @@ def make_proxy(upstream: str, mutations: set[str]) -> ThreadingHTTPServer:
             if "summary_200_while_running" in mutations and resp.status_code == 409 and \
                     re.fullmatch(r"/api/runs/[^/]+/(summary|checks)", path.split("?")[0]):
                 return self._json(200, {})
+            if "stuck_running" in mutations and resp.status_code == 200 and re.fullmatch(r"/api/runs/[^/]+",
+                                                                                          path.split("?")[0]):
+                data = resp.json()
+                data.update(status="RUNNING", stage="NORMALIZING", finished_at=None)
+                content = json.dumps(data).encode()
+            if "checks_garbage_while_running" in mutations and \
+                    re.fullmatch(r"/api/runs/[^/]+/checks", path.split("?")[0]):
+                run_path = path.split("?")[0].rsplit("/", 1)[0]
+                upstream_run = upstream_request("GET", run_path, b"", headers).json()
+                if upstream_run.get("status") not in ("COMPLETED", "FAILED") and \
+                        upstream_run.get("stage") in ("CHECKING", "FINALIZING"):
+                    return self._json(200, {})
             if "lie_mode_builtin" in mutations and path.startswith("/api/session") and resp.status_code == 200:
                 data = resp.json()
                 data["execution_mode"] = "builtin-only"

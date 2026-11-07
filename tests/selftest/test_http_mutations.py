@@ -26,7 +26,14 @@ CASES = {
                       ("passed", "xfailed")),  # xfailed = API-DISC-05 window observed (timing-dependent)
     "cr8_precise_xfail": ("builtin-only", "pivot_500",
                           [H + "test_results_contract.py::test_pivot_rollup_with_user_layout"], "xfailed"),
+    "cr2_2_bounded_wait": ("builtin-only", "stuck_running",
+                           [H + "test_runs_async.py::test_not_ready_before_completion_and_status_stays_responsive"],
+                           None),
+    "cr2_6_early_report_validated": ("builtin-only", "checks_garbage_while_running",
+                                     [H + "test_runs_async.py::test_not_ready_before_completion_and_status_stays_responsive"],
+                                     None),
 }
+EXTRA_ENV = {"cr2_2_bounded_wait": {"QA_RUN_TIMEOUT": "30"}}
 
 
 @pytest.fixture(scope="module")
@@ -46,7 +53,7 @@ def servers(tmp_path_factory):
 def test_mutation_is_detected(servers, case):
     mode, mutation, nodes, _ = CASES[case]
     backend, fixtures = servers[mode]
-    proc = run_nodes(backend.url, fixtures, nodes, {mutation})
+    proc = run_nodes(backend.url, fixtures, nodes, {mutation}, timeout=180, extra_env=EXTRA_ENV.get(case))
     assert outcome(proc) == "failed", proc.stdout[-3000:]
 
 

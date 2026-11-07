@@ -24,12 +24,13 @@ def backend_with_fixtures(workdir: Path, mode: str):
 
 
 def run_nodes(backend_url: str, fixtures: Path, nodes: list[str], mutations: set[str],
-              repo_root: Path = ROOT, timeout: int = 600) -> subprocess.CompletedProcess:
+              repo_root: Path = ROOT, timeout: int = 600, extra_env: dict | None = None) -> subprocess.CompletedProcess:
     proxy = make_proxy(backend_url, mutations)
     try:
         env = {k: v for k, v in os.environ.items() if not k.startswith("QA_")}
         env.update(QA_BASE_URL=f"http://127.0.0.1:{proxy.server_address[1]}", QA_FIXTURE_ROOT="qa",
                    QA_FIXTURE_DIR=str(fixtures), QA_OUTSIDE_ROOT="outside")
+        env.update(extra_env or {})
         return subprocess.run([sys.executable, "-m", "pytest", *nodes, "-q", "--no-header", "-rfEsx", "-p",
                                "no:cacheprovider"], cwd=repo_root, env=env, capture_output=True, text=True,
                               timeout=timeout)
