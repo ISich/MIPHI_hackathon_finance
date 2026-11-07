@@ -242,12 +242,17 @@ class Worker:
         return apply
 
     def _kill_child(self) -> None:
+        """SIGKILL the child's whole process group (start_new_session => pgid == child pid).
+
+        Done even if the leader already exited: descendants left in the group are ours too.
+        Processes that deliberately leave the group (setsid) are out of reach: not a sandbox.
+        """
         with self._lock:
             child = self._child
-        if child is not None and child.poll() is None:
+        if child is not None:
             try:
-                os.killpg(child.pid, signal.SIGKILL)  # own process group only (start_new_session)
-            except ProcessLookupError:
+                os.killpg(child.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
                 pass
 
     def spawn(self, argv: list[str], *, workdir: Path, timeout: float, log_path: Path,
@@ -276,6 +281,7 @@ class Worker:
         sel.register(ev_file, selectors.EVENT_READ, "ev")
         buf = b""
         open_streams = 2
+        leader_done = False
         with log_path.open("ab") as logf:
             while open_streams:
                 remaining = deadline - time.monotonic()
@@ -286,6 +292,10 @@ class Worker:
                 if self._stop.is_set():
                     self._kill_child()
                     break
+                if child.poll() is not None and not leader_done:
+                    # Leader finished: kill leftovers so they cannot hold our pipes or outlive the job.
+                    leader_done = True
+                    self._kill_child()
                 for key, _ in sel.select(timeout=min(remaining, 0.5)):
                     chunk = os.read(key.fileobj.fileno(), 65536)
                     if not chunk:
@@ -320,6 +330,7 @@ class Worker:
         except subprocess.TimeoutExpired:
             self._kill_child()
             rc = child.wait()
+        self._kill_child()  # always: no descendant of this execution survives it
         with self._lock:
             self._child = None
         return (None if timed_out else rc), timed_out
