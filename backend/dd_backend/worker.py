@@ -170,7 +170,7 @@ def _valid_registration(v: dict) -> bool:
     return False
 
 
-def _result_problem(v: dict) -> str | None:
+def _result_problem(v: dict, run_app_ids: frozenset[str] | None = None) -> str | None:
     """Schema of check_child 'run' output; returns a short reason or None when valid."""
     status, rows, diags = v.get("status"), v.get("rows"), v.get("diagnostics")
     if status not in EXECUTION_RESULT_STATUSES:
@@ -187,6 +187,8 @@ def _result_problem(v: dict) -> str | None:
         if (row["RESULT"] not in ("PASS", "FAIL") or row["SOURCE"] not in ("BEFORE", "AFTER")
                 or row["CONFIDENCE"] not in ("HIGH", "LOW") or not isinstance(row["APP_IDS"], list)):
             return "row has invalid enum/list values"
+        if run_app_ids is not None and any(str(a) not in run_app_ids for a in row["APP_IDS"]):
+            return "APP_IDS outside this run"
     return None
 
 
@@ -768,6 +770,7 @@ class Worker:
         cdir.mkdir(parents=True, exist_ok=True)
         executions: list[dict] = []
         report_bytes = 0  # aggregate budget of accepted check results held in this process
+        run_app_ids = self._run_app_ids(mart)
         seen_ids: dict[str, str] = {}
         for s in selected:
             if self._stop.is_set():
@@ -786,7 +789,15 @@ class Worker:
                 if timed_out:
                     ex.update(execution_status="TIMEOUT", diagnostics=[{"error_type": "Timeout", "message": "check import timed out"}])
                     continue
-                reg, pstatus, _ = _read_protocol(reg_out, REGISTRATION_RESULT_LIMIT) if rc == 0 else (None, "exit", 0)
+                reg, pstatus, rsize = (_read_protocol(reg_out, min(REGISTRATION_RESULT_LIMIT,
+                                                                   max(0, settings.max_report_bytes - report_bytes)))
+                                       if rc == 0 else (None, "exit", 0))
+                if pstatus == "too_big" and rsize <= REGISTRATION_RESULT_LIMIT:
+                    ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
+                        "error_type": "ReportBudgetExceeded",
+                        "message": f"report budget DD_MAX_REPORT_BYTES exhausted by registration metadata "
+                                   f"({report_bytes}+{rsize} bytes); not loaded"}])
+                    continue
                 if reg is None:
                     ex.update(execution_status="ERROR", diagnostics=[{
                         "error_type": "ChildFailed" if pstatus == "exit" else "ProtocolFile",
@@ -801,6 +812,7 @@ class Worker:
                     ex.update(execution_status=reg["status"], diagnostics=[{"error_type": reg["error_type"],
                                                                             "message": self._sanitize(reg["message"])}])
                     continue
+                report_bytes += rsize  # retained registration metadata (params) counts against the budget
                 ex.update(check_id=reg["id"], label=reg["label"])
                 if reg["id"] in seen_ids:
                     ex.update(execution_status="DUPLICATE_ID", diagnostics=[{
@@ -838,7 +850,7 @@ class Worker:
                     ex.update(execution_status="INVALID_OUTPUT" if pstatus in ("not_regular", "invalid") else "ERROR",
                               diagnostics=[{"error_type": "ProtocolFile", "message": f"check result unusable ({pstatus})"}])
                     continue
-                problem = _result_problem(res)
+                problem = _result_problem(res, run_app_ids)
                 if problem:
                     ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
                         "error_type": "MalformedProtocol", "message": f"check result does not match the protocol schema: {problem}"}])
@@ -854,6 +866,16 @@ class Worker:
                 ex.update(execution_status="ERROR", rows=[], diagnostics=[{
                     "error_type": "WorkerCheckError", "message": f"internal error while handling this check ({type(exc).__name__})"}])
         return self._publish_report(run_id, cr_id, executions, initial=initial)
+
+    @staticmethod
+    def _run_app_ids(mart: Path) -> frozenset[str]:
+        """APP_IDs of this run (read-only, from its own mart) to validate the final protocol bytes."""
+        import duckdb
+        con = duckdb.connect(str(mart), read_only=True)
+        try:
+            return frozenset(str(r[0]) for r in con.execute("SELECT APP_ID FROM segments").fetchall())
+        finally:
+            con.close()
 
     def _publish_report(self, run_id: str, cr_id: str, executions: list[dict], *, initial: bool) -> bool:
         c = self.db.one("SELECT report_id FROM check_runs WHERE check_run_id=?", (cr_id,))

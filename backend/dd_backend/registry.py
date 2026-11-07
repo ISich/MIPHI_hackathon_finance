@@ -461,7 +461,12 @@ class Registry:
             sets["updated_at"] = now()
             assign = ", ".join(f"{k} = :{k}" for k in sets)
             with self.db.tx() as con:
-                con.execute(f"UPDATE scripts SET {assign} WHERE script_id = :sid", {**sets, "sid": script_id})
+                # Conditional on the revision we read: a concurrent update makes this one an explicit conflict.
+                changed = con.execute(f"UPDATE scripts SET {assign} WHERE script_id = :sid AND revision = :expected",
+                                      {**sets, "sid": script_id, "expected": row["revision"]}).rowcount
+            if changed != 1:
+                raise ApiError(409, "SCRIPT_CONFLICT", "The script was changed concurrently; reload it and retry",
+                               {"script_id": script_id, "expected_revision": row["revision"]})
         return self.get_script(owner_id, script_id)
 
     def _script_row(self, owner_id: str, script_id: str) -> dict:
