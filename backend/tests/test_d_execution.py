@@ -241,3 +241,32 @@ def test_graceful_shutdown_fails_running_job_explicitly(env, monkeypatch):
         c2.cookies = c.cookies
         body = c2.get(f"/api/runs/{run['run_id']}").json()
         assert body["status"] == "FAILED" and body["error"]["code"] == "RUN_INTERRUPTED"
+
+
+def test_unexpected_worker_error_fails_run_instead_of_hanging(env, monkeypatch):
+    from dd_backend import worker as worker_mod
+
+    def boom(self, *a, **k):
+        raise RuntimeError("simulated bug in report publication")
+    monkeypatch.setattr(worker_mod.Worker, "_publish_report", boom)
+    with make_client() as c:
+        ds = demo_dataset(c)
+        done = wait_run(c, start_run(c, config(c, ds["dataset_id"], checks=[])["config_id"]).json()["run_id"])
+        assert done["status"] == "FAILED" and done["error"]["code"] == "WORKER_ERROR"
+        assert done["report_status"] == "FAILED"
+        assert "simulated bug" not in done["error"]["message"]  # internal details stay in the server log
+        cfg2 = config(c, ds["dataset_id"], checks=[])
+        monkeypatch.undo()
+        assert wait_run(c, start_run(c, cfg2["config_id"]).json()["run_id"])["status"] == "COMPLETED"
+
+
+def test_custom_aggregate_must_return_summary_fields(trusted):
+    c = trusted
+    ds = demo_dataset(c)
+    agg = c.post("/api/scripts", json={"kind": "aggregate", "name": "agg", "code":
+                                       "from decision_diff.reporting import pivot_facts\n"
+                                       "def aggregate(rows, segments, params):\n"
+                                       "    return {'pivot_facts': pivot_facts(rows), 'summary': {'total_apps': 1}}\n"}).json()
+    cfg = config(c, ds["dataset_id"], slots={"aggregate": {"script_id": agg["script_id"]}}, checks=[])
+    done = wait_run(c, start_run(c, cfg["config_id"]).json()["run_id"])
+    assert done["status"] == "FAILED" and done["error"]["code"] == "OUTPUT_SCHEMA_INVALID"

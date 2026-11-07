@@ -228,6 +228,9 @@ def run(run_dir: Path, emit: Emitter) -> dict:
         raise StageFailure("AGGREGATION_ERROR", f"{type(exc).__name__}: {exc}") from exc
     if not isinstance(agg, dict) or not isinstance(agg.get("summary"), dict):
         raise StageFailure("OUTPUT_SCHEMA_INVALID", "aggregate must return {'pivot_facts': [...], 'summary': {...}}")
+    missing_summary = [k for k in ("total_apps", "changed_apps", "decision_changed_apps") if k not in agg["summary"]]
+    if missing_summary:
+        raise StageFailure("OUTPUT_SCHEMA_INVALID", f"aggregate summary is missing {missing_summary}")
     pivot = _require_rows(agg.get("pivot_facts"), PIVOT_COLUMNS, "aggregate.pivot_facts")
     union = [row for name in pairs for row in (*normalized[name][0], *normalized[name][1])]
     counts = {

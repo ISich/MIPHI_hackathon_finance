@@ -201,6 +201,10 @@ class Worker:
                         self.execute_data_run(job["ref_id"])
                     else:
                         self.execute_check_run(job["ref_id"])
+                except Exception:
+                    # Never leave a job RUNNING forever: fail it explicitly, details only in the server log.
+                    log.exception("job %s %s failed inside the worker", job["kind"], job["ref_id"])
+                    self._fail_job(job, "WORKER_ERROR", "Internal worker error; see server log for this run id")
                 finally:
                     self._current = {}
                     if not self._stop.is_set():
@@ -330,6 +334,17 @@ class Worker:
                     "WHERE check_run_id=? AND status NOT IN ('COMPLETED','FAILED')", (f"data run failed: {code}", ts, r[1]))
         con.execute("UPDATE reports SET status='FAILED' WHERE report_id=? AND status='PENDING'", (r[2],))
         append_event(con, run_id, "ERROR", f"{code}: {message}", stage=r[0])
+
+    def _fail_job(self, job: dict, code: str, message: str) -> None:
+        with self.db.tx() as con:
+            if job["kind"] == "DATA_RUN":
+                row = con.execute("SELECT status FROM runs WHERE run_id=?", (job["ref_id"],)).fetchone()
+                if row and row[0] not in ("COMPLETED", "FAILED"):
+                    self._fail_run_tx(con, job["ref_id"], code, message)
+            else:
+                row = con.execute("SELECT status FROM check_runs WHERE check_run_id=?", (job["ref_id"],)).fetchone()
+                if row and row[0] not in ("COMPLETED", "FAILED"):
+                    self._fail_check_run_tx(con, job["ref_id"], code, message)
 
     def _fail_check_run_tx(self, con, cr_id: str, code: str, message: str) -> None:
         ts = now()
