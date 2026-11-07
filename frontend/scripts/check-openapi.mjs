@@ -13,6 +13,7 @@ const spec = src.startsWith("http") ? await (await fetch(src)).json() : JSON.par
 // [method, path, schema name whose properties the UI reads (or null)]
 const USED = [
   ["get", "/ready", null],
+  ["get", "/api/session", null],
   ["get", "/api/datasets", "Dataset"],
   ["get", "/api/scripts", "Script"],
   ["post", "/api/scripts", "Script"],

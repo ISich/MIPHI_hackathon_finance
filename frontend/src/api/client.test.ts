@@ -139,3 +139,45 @@ describe("helpers", () => {
     expect(rowsByExecution(doc([row("a")], [ex("a", 2)]))).toBeNull();
   });
 });
+
+describe("session bootstrap", () => {
+  it("parallel first /api requests wait for ONE GET /api/session (backend issues a new session per cookie-less request)", async () => {
+    const order: string[] = [];
+    let releaseSession!: () => void;
+    const sessionGate = new Promise<void>((r) => (releaseSession = r));
+    const f = async (url: string) => {
+      order.push(url);
+      if (url === "/api/session") await sessionGate;
+      return new Response(JSON.stringify(url === "/api/session" ? { kind: "anonymous-session" } : []), { status: 200 });
+    };
+    const c = new ApiClient(f, "", { bootstrapSession: true });
+    const all = Promise.all([c.datasets(), c.scripts(), c.scriptKinds()]);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(order).toEqual(["/api/session"]); // nothing else went out before the session exists
+    releaseSession();
+    await all;
+    expect(order.filter((u) => u === "/api/session")).toHaveLength(1);
+    expect(order.slice(1).sort()).toEqual(["/api/datasets", "/api/script-kinds", "/api/scripts"]);
+    await c.runs();
+    expect(order.filter((u) => u === "/api/session")).toHaveLength(1);
+  });
+
+  it("does not bootstrap for non-/api paths and retries after a failed bootstrap", async () => {
+    const order: string[] = [];
+    let failFirst = true;
+    const f = async (url: string) => {
+      order.push(url);
+      if (url === "/api/session" && failFirst) {
+        failFirst = false;
+        throw new TypeError("network");
+      }
+      return new Response(JSON.stringify(url === "/ready" ? { ready: true } : []), { status: 200 });
+    };
+    const c = new ApiClient(f, "", { bootstrapSession: true });
+    await c.ready();
+    expect(order).toEqual(["/ready"]);
+    await c.datasets(); // bootstrap failed (network) → request still goes out
+    await c.datasets(); // bootstrap retried once
+    expect(order).toEqual(["/ready", "/api/session", "/api/datasets", "/api/session", "/api/datasets"]);
+  });
+});

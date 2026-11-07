@@ -77,6 +77,20 @@ test("real: configuration → Run → monitor/events → summary → pivot/facts
   expect(consoleErrors.filter((e) => !e.includes("status of 501"))).toEqual([]);
 });
 
+test("real: a fresh browser gets exactly one anonymous session on first load (no parallel-session race)", async ({ page }) => {
+  const issued: string[] = [];
+  page.on("response", async (r) => {
+    const sc = (await r.allHeaders())["set-cookie"];
+    if (sc && sc.includes("dd_session=")) issued.push(r.url());
+  });
+  await page.goto("/#/scripts/new"); // fires several API calls at once
+  await expect(page.getByTestId("exec-mode")).toBeVisible();
+  await page.goto("/#/runs/new");
+  await expect(page.getByRole("combobox", { name: "Процедура normalize" })).toBeVisible();
+  expect(issued).toHaveLength(1);
+  expect(issued[0]).toContain("/api/session");
+});
+
 test("real: another session cannot read this Run (owner scope)", async ({ page, request }) => {
   const runId = await startRealRun(page);
   expect((await page.request.get(`/api/runs/${runId}`)).status()).toBe(200);

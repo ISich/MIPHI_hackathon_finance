@@ -122,13 +122,43 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+export interface ApiClientOptions {
+  /**
+   * Before the first /api request, perform one GET /api/session and make every
+   * other /api request wait for it. The backend issues a NEW anonymous session
+   * for each cookie-less request, so parallel first requests would otherwise get
+   * different sessions and the browser would keep only the last cookie.
+   */
+  bootstrapSession?: boolean;
+}
+
 export class ApiClient {
+  private session: Promise<void> | null = null;
+
   constructor(
     private readonly fetchImpl: FetchLike = (i, init) => fetch(i, init),
     private readonly base = "",
+    private readonly options: ApiClientOptions = {},
   ) {}
 
+  private ensureSession(): Promise<void> {
+    if (!this.session) {
+      this.session = this.raw<unknown>("GET", "/api/session").then(
+        () => undefined,
+        () => {
+          this.session = null; // retry on the next request; the request itself reports errors
+        },
+      );
+    }
+    return this.session;
+  }
+
   async request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<T> {
+    if (this.options.bootstrapSession && path.startsWith("/api/")) await this.ensureSession();
+    return this.raw<T>(method, path, opts);
+  }
+
+  private async raw<T>(method: string, path: string, opts: RequestOptions = {}): Promise<T> {
     const headers: Record<string, string> = { Accept: "application/json", ...(opts.headers ?? {}) };
     const init: RequestInit = { method, credentials: "same-origin", headers };
     if (opts.form) {

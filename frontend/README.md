@@ -1,6 +1,6 @@
 # Frontend (D3) — браузерный UI анализа изменений СПР
 
-Vite 6 + React 18 + TypeScript (strict). Без UI-кита, router-библиотеки и state-менеджера. UI **не** считает diff, pivot-итоги и distinct в браузере и **не** исполняет Python: всё это делает backend (D2) поверх ядра `decision_diff` (D1/D4).
+Vue 3 + TypeScript (strict, `vue-tsc`) + Vite 6 — стек UI по решению команды (docs v0.3). Без UI-кита, vue-router и Pinia: свой hash-router (composable) и локальное состояние экранов. UI **не** считает diff, pivot-итоги и distinct в браузере и **не** исполняет Python: всё это делает backend (D2) поверх ядра `decision_diff` (D1/D4).
 
 ## Требования
 
@@ -27,6 +27,12 @@ cd backend && .venv/bin/python -m dd_backend serve --host 127.0.0.1 --port 8000
 
 Для стенда: UI и `/api` должны быть на одном origin (cookie-сессия `dd_session` HttpOnly, SameSite=Lax), а для `/runs/*` нужен SPA-fallback на `index.html` — ссылка из HTML-отчёта ведёт на `{DD_REPORT_UI_BASE}/runs/{run_id}/reports/{report_id}`, UI переписывает её в сводную этого Run.
 
+## Структура `src/`
+
+По зонам из docs/project-structure.md v0.3: `run-config/` (новый запуск), `editor/` (рабочая область, новая проверка), `run-monitor/` (список Run, мониторинг), `report-summary/`, `pivot/`, `drilldown/`, `checks-report/`; общие `api/` (типизированный клиент и DTO), `components/`, `composables/` (`useApi`, `usePolling`), `mock/` (только dev), `test/`.
+
+Клиент перед первым запросом к `/api/*` один раз вызывает `GET /api/session` и только потом шлёт остальные: backend выдаёт новую анонимную сессию на каждый запрос без cookie, и параллельные первые запросы иначе разъезжались бы по разным сессиям.
+
 ## Экраны
 
 - **Запуски** `#/runs` — список Run текущей сессии; автообновление, пока есть активные.
@@ -44,7 +50,7 @@ cd backend && .venv/bin/python -m dd_backend serve --host 127.0.0.1 --port 8000
 
 ```bash
 npm run typecheck          # tsc strict
-npm test                   # Vitest: client, router, экраны (на тестовом дубле wire-формата)
+npm test                   # Vitest + @vue/test-utils: client, router, экраны (на тестовом дубле wire-формата)
 npm run e2e:mock           # Playwright Chromium, desktop + narrow, против MOCK (UI-поведение, не расчёт)
 
 # реальная интеграция: backend на 127.0.0.1:8000 + dev-сервер UI

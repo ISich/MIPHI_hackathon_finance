@@ -18,4 +18,4 @@ if (import.meta.env.VITE_API_MODE === "mock") {
   fetchImpl = async (input, init) => (await mock)(input, init);
 }
 
-export const api = new ApiClient(fetchImpl);
+export const api = new ApiClient(fetchImpl, "", { bootstrapSession: true });

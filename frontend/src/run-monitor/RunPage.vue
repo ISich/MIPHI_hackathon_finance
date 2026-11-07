@@ -82,8 +82,7 @@ const selected = computed<Tab>(
   <section>
     <p><a :href="href('runs')">← Запуски</a></p>
     <h1>
-      Run <code>{{ runId }}</code>
-      <RunStatusBadge v-if="run" :status="run.status" />
+      Run <code>{{ runId }}</code>{{ " " }}<RunStatusBadge v-if="run" :status="run.status" />
     </h1>
     <ErrorView v-if="error && !run" :error="error" />
     <div v-if="error && run" class="muted">Ошибка обновления статуса, повторяю…</div>

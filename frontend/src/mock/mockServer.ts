@@ -442,6 +442,7 @@ export function createMockFetch(opts: MockOptions) {
     const idemKey = headers.get("Idempotency-Key");
 
     if (p === "/ready") return json(200, { ready: true, checks: [], execution_mode: custom ? "trusted-local" : "builtin-only", warnings: ["MOCK backend"] });
+    if (p === "/api/session") return json(200, { authenticated: false, kind: "anonymous-session (MOCK)" });
     if (p === "/api/datasets" && method === "GET") return json(200, datasets);
     if (p === "/api/script-kinds") return json(200, kinds);
     if (p === "/api/scripts" && method === "GET") {
