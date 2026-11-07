@@ -67,11 +67,66 @@ def test_foreign_script_cannot_be_referenced_in_own_config(api_b, a_entities, ex
     assert_envelope(r, (404, 422))
 
 
-def test_owner_from_body_or_header_is_ignored(api_b, a_entities):
-    r = api_b.get(f"/api/runs/{a_entities['run']['run_id']}", headers={"x-owner-id": "anything", "x-user-id": "a"})
-    assert r.status_code == 404
+OWNER_HEADERS = ("x-owner-id", "x-user-id", "x-forwarded-user", "x-remote-user", "owner-id")
+
+
+@pytest.mark.parametrize("header", OWNER_HEADERS)
+def test_owner_header_is_ignored(base_url, header):
+    """CR #4: A creates an entity while sending a chosen owner header; B sends the SAME header value.
+    If the backend derived the owner from that header, B would be A. B must get 404 and not see it."""
+    import uuid
+
+    from support.http_api import Api
+
+    forged = f"qa-owner-{uuid.uuid4().hex}"
+    a, b = Api(base_url), Api(base_url)
+    try:
+        a.session(), b.session()
+        created = a.http.post("/api/scripts", headers={header: forged},
+                              json={"kind": "check", "name": "hdr", "code": "x = 1\n", "params": {}})
+        assert created.status_code == 201, created.text
+        sid = created.json()["script_id"]
+        assert a.get(f"/api/scripts/{sid}", headers={header: forged}).status_code == 200
+        r = b.get(f"/api/scripts/{sid}", headers={header: forged})
+        assert r.status_code == 404, (header, r.status_code)
+        listed = b.get("/api/scripts", headers={header: forged}).json()
+        assert sid not in {x["script_id"] for x in listed}
+    finally:
+        a.http.close()
+        b.http.close()
+
+
+def test_owner_in_body_is_rejected(api_b, a_entities):
     body = {"configuration_id": a_entities["config"]["config_id"], "owner_id": "x"}
     assert_envelope(api_b.post("/api/runs", body), 422)
+
+
+def test_foreign_dataset_cannot_be_referenced(api_b, a_entities):
+    """CR #5: B must not be able to configure (and thus run) A's dataset."""
+    r = api_b.post("/api/configurations", {"name": "steal-ds", "dataset_id": a_entities["dataset"]["dataset_id"]},
+                   key=None)
+    assert_envelope(r, (404, 422))
+
+
+@pytest.mark.parametrize("slot", ["normalize", "compare", "segments", "aggregate"])
+def test_foreign_procedure_cannot_be_referenced_in_slot(api_a, api_b, examples_root, slot):
+    """CR #5: a foreign procedure script in a slot of B's configuration is refused."""
+    kinds = {k["kind"]: k for k in api_a.get("/api/script-kinds").json()}
+    foreign = api_a.script(slot, kinds[slot]["example"])
+    assert foreign.status_code == 201, foreign.text
+    ds = api_b.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
+    r = api_b.post("/api/configurations", {"name": "steal-slot", "dataset_id": ds["dataset_id"],
+                                           "slots": {slot: {"script_id": foreign.json()["script_id"]}}}, key=None)
+    assert_envelope(r, (404, 422))
+
+
+def test_foreign_check_cannot_be_used_in_own_check_run(api_b, a_entities, examples_root):
+    """CR #5: B's check-only run on B's own Run may not reference A's check script."""
+    ds = api_b.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
+    run = api_b.wait(f"/api/runs/{api_b.start_run(api_b.config(ds['dataset_id'])['config_id']).json()['run_id']}")
+    assert run["status"] == "COMPLETED", run
+    r = api_b.post(f"/api/runs/{run['run_id']}/check-runs", {"checks": [{"script_id": a_entities["script"]["script_id"]}]})
+    assert_envelope(r, (404, 422))
 
 
 def test_forged_cookie_gets_fresh_owner(base_url, a_entities):
