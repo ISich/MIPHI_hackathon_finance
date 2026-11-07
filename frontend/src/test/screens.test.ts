@@ -136,6 +136,33 @@ describe("Checks", () => {
   });
 });
 
+describe("Checks report belongs to the displayed Run", () => {
+  it("refuses to show Run B's report under Run A (?report=<B report>)", async () => {
+    const a = await completedRun();
+    const b = await completedRun();
+    const w = mnt(ChecksView, { run: a, reportId: b.initial_report_id });
+    await waitFor(() => expect(document.querySelector('[data-error-code="REPORT_RUN_MISMATCH"]')).not.toBeNull());
+    expect(allByTestId(w, "check-execution")).toHaveLength(0);
+    expect(text(w)).toContain(b.initial_report_id);
+    w.unmount();
+  });
+
+  it("refuses a report whose data revision differs from the Run's", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => {
+      const r = await inner(url, init);
+      if (!url.endsWith(`/reports/${run.initial_report_id}/checks`)) return r;
+      const body = await r.json();
+      return new Response(JSON.stringify({ ...body, dataset_revision_id: "rev_other" }), { status: 200 });
+    };
+    const w = mnt(ChecksView, { run, reportId: null });
+    await waitFor(() => expect(document.querySelector('[data-error-code="REPORT_RUN_MISMATCH"]')).not.toBeNull());
+    expect(allByTestId(w, "check-execution")).toHaveLength(0);
+    w.unmount();
+  });
+});
+
 describe("New check", () => {
   it("in builtin-only mode saves the snapshot but shows the backend's honest refusal", async () => {
     const run = await completedRun();
