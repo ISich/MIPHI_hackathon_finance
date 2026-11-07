@@ -84,3 +84,15 @@ def assert_envelope(resp: httpx.Response, status: int | tuple[int, ...], code: s
     if code:
         assert body["code"] == code, body
     return body
+
+
+def known_defect(condition: bool, disc: str) -> None:
+    """Expected failure ONLY for the precisely documented defect condition (CR #8).
+
+    Anything else (5xx, other codes, broken fixtures) is not matched here and therefore fails normally.
+    When the defect is fixed the condition is false and the test's real assertions run (PASS or FAIL).
+    """
+    import pytest
+
+    if condition:
+        pytest.xfail(disc)
