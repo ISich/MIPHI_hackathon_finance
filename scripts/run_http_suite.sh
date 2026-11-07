@@ -2,7 +2,8 @@
 # Start the backend (from BACKEND_DIR, read-only) on 127.0.0.1 with a throw-away DD_HOME,
 # run the black-box HTTP tests against it, then stop only the process started here.
 #
-#   BACKEND_DIR=~/projects/MIPHI_hackathon_finance/backend scripts/run_http_suite.sh [builtin-only|trusted-local] [pytest args]
+#   BACKEND_DIR=~/projects/MIPHI_hackathon_finance/backend scripts/run_http_suite.sh [builtin-only|trusted-local] [pytest args/paths]
+# Without pytest args the whole tests/http suite runs. Run from the repository root.
 #
 # Nothing is written into BACKEND_DIR (PYTHONDONTWRITEBYTECODE=1, cwd and DD_HOME elsewhere).
 set -euo pipefail
@@ -22,9 +23,9 @@ export DD_HOME="$WORK/home" DD_CHECKS_DIR="$CHECKS_DIR" DD_EXECUTION_MODE="$MODE
 export DD_DATA_ROOTS="examples=$EXAMPLES_DIR,qa=$WORK/fixtures" DD_BIND_HOST=127.0.0.1
 export DD_RUN_TIMEOUT_SECONDS="${DD_RUN_TIMEOUT_SECONDS:-120}" DD_CHECK_TIMEOUT_SECONDS="${DD_CHECK_TIMEOUT_SECONDS:-5}"
 
-cd "$WORK"
-"$BACKEND_PY" -m uvicorn dd_backend.app:create_app --factory --host 127.0.0.1 --port "$PORT" \
-  --app-dir "$BACKEND_DIR" >"$WORK/server.log" 2>&1 &
+# exec: the background PID is the server itself, so cleanup kills exactly this process.
+( cd "$WORK" && exec "$BACKEND_PY" -m uvicorn dd_backend.app:create_app --factory --host 127.0.0.1 \
+    --port "$PORT" --app-dir "$BACKEND_DIR" >"$WORK/server.log" 2>&1 ) &
 PID=$!
 cleanup() { kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; echo "server log: $WORK/server.log"; }
 trap cleanup EXIT
@@ -35,4 +36,4 @@ for _ in $(seq 1 100); do
 done
 echo "backend pid=$PID mode=$MODE home=$DD_HOME"
 QA_BASE_URL="http://127.0.0.1:$PORT" QA_FIXTURE_ROOT=qa QA_FIXTURE_DIR="$WORK/fixtures" QA_EXECUTION_MODE="$MODE" \
-  "$QA_PY" -m pytest "$ROOT/tests/http" "$@"
+  "$QA_PY" -m pytest "${@:-$ROOT/tests/http}"
