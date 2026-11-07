@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { slotOfCodeRef } from "../api/client";
 import { api } from "../api/instance";
+import { timing } from "../config";
 import type { Run, RunEvent } from "../api/types";
 import { RUN_STAGES } from "../api/types";
 import { RunStatusBadge } from "../components/Badges";
@@ -22,13 +23,15 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
-export const POLL_MS = 1500;
 
 /** Run monitor + report tabs. Polls status and events with ?after=seq while the Run is active. */
 export function RunPage({ runId, tab, query }: { runId: string; tab: string | undefined; query: URLSearchParams }) {
   const [run, setRun] = useState<Run | undefined>();
   const [error, setError] = useState<unknown>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
+  // Default tab: summary only if the Run was already finished when opened; a Run
+  // watched live stays on the monitor when it completes.
+  const [openedCompleted, setOpenedCompleted] = useState<boolean | null>(null);
   const lastSeq = useRef(0);
   const current = useRef(runId);
 
@@ -37,19 +40,24 @@ export function RunPage({ runId, tab, query }: { runId: string; tab: string | un
     setRun(undefined);
     setError(null);
     setEvents([]);
+    setOpenedCompleted(null);
     lastSeq.current = 0;
   }, [runId]);
 
   const active = !run || run.status === "QUEUED" || run.status === "RUNNING";
   usePolling(
     active && !(error && !run),
-    POLL_MS,
+    timing.runPollMs,
     async () => {
       const id = runId;
       try {
-        const [r, ev] = await Promise.all([api.run(id), api.events(id, lastSeq.current)]);
+        // Status first, then events: once a terminal status is seen, the events
+        // fetched afterwards already contain the final ones (polling stops then).
+        const r = await api.run(id);
+        const ev = await api.events(id, lastSeq.current);
         if (current.current !== id) return; // stale: user switched Run
         setRun(r);
+        setOpenedCompleted((v) => (v === null ? r.status === "COMPLETED" : v));
         setError(null);
         if (ev.items.length) {
           lastSeq.current = Math.max(ev.next_after, ...ev.items.map((e) => e.seq));
@@ -66,7 +74,7 @@ export function RunPage({ runId, tab, query }: { runId: string; tab: string | un
   );
 
   const completed = run?.status === "COMPLETED";
-  const selected: Tab = (TABS.find(([t]) => t === tab)?.[0] ?? (completed ? "summary" : "monitor")) as Tab;
+  const selected: Tab = (TABS.find(([t]) => t === tab)?.[0] ?? (completed && openedCompleted ? "summary" : "monitor")) as Tab;
 
   return (
     <section>

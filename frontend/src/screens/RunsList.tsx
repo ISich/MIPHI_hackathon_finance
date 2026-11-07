@@ -1,4 +1,5 @@
 import { api } from "../api/instance";
+import { timing } from "../config";
 import { Async } from "../components/StateView";
 import { RunStatusBadge } from "../components/Badges";
 import { useApi, usePolling } from "../hooks/useApi";
@@ -7,7 +8,7 @@ import { href } from "../router";
 export function RunsList() {
   const runs = useApi("runs", () => api.runs());
   const active = !!runs.data?.some((r) => r.status === "QUEUED" || r.status === "RUNNING");
-  usePolling(active, 3000, async () => runs.reload(), []);
+  usePolling(active, timing.listPollMs, async () => runs.reload(), []);
   return (
     <section>
       <div className="row-between">

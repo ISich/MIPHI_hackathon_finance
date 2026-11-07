@@ -18,10 +18,10 @@ export function parsePivotQuery(q: URLSearchParams): PivotState {
   const list = (k: string) => (q.get(k) ?? "").split(",").filter(Boolean);
   const filters: PivotFilter[] = [];
   q.forEach((v, k) => {
-    if (k.startsWith("f.") && v !== "") filters.push({ dim: k.slice(2), op: "in", values: v.split("|") });
+    if (k.startsWith("f.")) filters.push({ dim: k.slice(2), op: "in", values: v.split("|") });
   });
   const rows = list("rows");
-  return { rows: rows.length ? rows : ["CHANGE_TYPE"], cols: list("cols"), filters };
+  return { rows: rows.length ? rows : ["DIFF_FLAG"], cols: list("cols"), filters };
 }
 
 export function pivotQuery(s: PivotState): string {

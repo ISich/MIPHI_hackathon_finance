@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, newIdempotencyKey } from "../api/client";
 import { api } from "../api/instance";
+import { timing } from "../config";
 import type { CheckRun, Run, Script, ScriptRef } from "../api/types";
 import { PythonEditor } from "../components/PythonEditor";
 import { Async, ErrorView } from "../components/StateView";
@@ -9,7 +10,6 @@ import { href, navigate } from "../router";
 import { ExecutionModeNote } from "../components/ExecutionModeNote";
 import { saveScript } from "../api/actions";
 
-export const CHECK_POLL_MS = 1500;
 
 /**
  * "New check" scenario: editor or .py upload → saved snapshot → POST
@@ -69,7 +69,7 @@ export function NewCheck({ run }: { run: Run }) {
           setPhase("edit");
           return;
         }
-        await new Promise((r) => setTimeout(r, CHECK_POLL_MS));
+        await new Promise((r) => setTimeout(r, timing.checkRunPollMs));
         cr = await api.checkRun(cr.check_run_id);
       }
     } catch (e) {
