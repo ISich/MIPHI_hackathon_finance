@@ -36,7 +36,7 @@ describe("ApiClient errors", () => {
 
   it("marks 501 ANALYTICS_UNAVAILABLE as unavailable", async () => {
     const { f } = fakeFetch(501, { code: "ANALYTICS_UNAVAILABLE", message: "not implemented", details: {}, request_id: "x" });
-    const err: ApiError = await new ApiClient(f).pivot("r", { rows: [], cols: [], filters: [] }).catch((e) => e);
+    const err: ApiError = await new ApiClient(f).pivot("r", { dimensions: ["PATH"], filters: {} }).catch((e) => e);
     expect(err.isUnavailable).toBe(true);
   });
 
@@ -61,6 +61,11 @@ describe("ApiClient requests", () => {
   it("accepts list endpoints as bare arrays and as {items} pages", async () => {
     expect(await new ApiClient(fakeFetch(200, [{ dataset_id: "a" }]).f).datasets()).toHaveLength(1);
     expect(await new ApiClient(fakeFetch(200, { items: [{ run_id: "r" }], total: 1, limit: 50, offset: 0 }).f).runs()).toHaveLength(1);
+  });
+
+  it("preserves the account total when only the first page of runs is loaded", async () => {
+    const body = { items: [{ run_id: "r" }], total: 121, limit: 50, offset: 0 };
+    expect(await new ApiClient(fakeFetch(200, body).f).runsPage()).toEqual(body);
   });
 
   it("sends configuration_id and the Idempotency-Key header when creating a Run", async () => {

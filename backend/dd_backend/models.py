@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Status = Literal["QUEUED", "RUNNING", "COMPLETED", "FAILED"]
 Stage = Literal["VALIDATING", "NORMALIZING", "COMPARING", "AGGREGATING", "CHECKING", "FINALIZING"]
@@ -11,6 +11,26 @@ Stage = Literal["VALIDATING", "NORMALIZING", "COMPARING", "AGGREGATING", "CHECKI
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def valid_unicode(cls, value: Any) -> Any:
+        # JSON escapes can introduce lone UTF-16 surrogates even in a valid UTF-8 body.
+        # Reject them before SQLite, password hashing or file writes can turn them into 500s.
+        pending = [value]
+        try:
+            while pending:
+                item = pending.pop()
+                if isinstance(item, str):
+                    item.encode("utf-8")
+                elif isinstance(item, dict):
+                    pending.extend(item.keys())
+                    pending.extend(item.values())
+                elif isinstance(item, (list, tuple)):
+                    pending.extend(item)
+        except UnicodeEncodeError:
+            raise ValueError("Request strings must contain valid Unicode characters") from None
+        return value
 
 
 class ErrorBody(BaseModel):
@@ -21,6 +41,24 @@ class ErrorBody(BaseModel):
 
 
 # ------------------------------------------------------------------ requests
+class LoginRequest(Strict):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=256, repr=False)
+
+
+class AccountUser(BaseModel):
+    username: str
+    display_name: str
+
+
+class Session(BaseModel):
+    authenticated: bool
+    kind: Literal["account", "anonymous-session"]
+    user: AccountUser | None
+    cookie_secure: bool
+    execution_mode: str
+
+
 class DatasetCreate(Strict):
     name: str = Field(min_length=1, max_length=120)
     root: str = Field(description="Name of a server-side allowlisted data root (see GET /api/datasets/roots)")
@@ -109,6 +147,13 @@ class Dataset(BaseModel):
 
 class DataRoots(BaseModel):
     roots: list[str]
+
+
+class DatasetTable(BaseModel):
+    dataset_id: str
+    side: Literal["before", "after"]
+    columns: list[str]
+    rows: list[list[str | int | float | bool | None]]
 
 
 class Script(BaseModel):

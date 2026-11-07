@@ -1,12 +1,25 @@
 // Wire DTOs for the D2 backend API.
 //
-// Source of truth: backend-night Pydantic models (dd_backend/models.py on
-// feat/backend-night, read 2026-11-07). docs/contracts/api.md (3731ae3) gives
-// semantics only. Server pivot rollup / group locators follow docs because the
-// backend answers 501 ANALYTICS_UNAVAILABLE for them until D4 implements them.
-// Divergences are logged in night-ui.log.md / UI_RESULT.md.
+// Source of truth: backend/openapi.json and dd_backend/models.py on main.
+// Pivot response fields follow the pinned D4 PivotRollup implementation;
+// its response schema is free-form in OpenAPI (see UI_PIVOT_EVIDENCE.md).
 
 export type Iso = string;
+
+export interface DatasetTable { dataset_id: string; side: "before" | "after"; columns: string[]; rows: Array<Array<string | number | boolean | null>> }
+
+export interface AccountUser {
+  username: string;
+  display_name: string;
+}
+
+export interface Session {
+  authenticated: boolean;
+  kind: "account" | "anonymous-session";
+  user: AccountUser | null;
+  cookie_secure: boolean;
+  execution_mode: string;
+}
 
 /** Error envelope: {code, message, details, request_id}. */
 export interface ErrorEnvelope {
@@ -230,6 +243,10 @@ export const PIVOT_DIMENSIONS = [
   "VALUE_ADJUSTED",
   "SOURCE",
   "DIFF_FLAG",
+  "CHANGE_TYPE", "DECISION_BEFORE", "DECISION_AFTER", "DECISION_CHANGED", "PRODUCTS",
+  "TOP_OFFER_BEFORE", "TOP_OFFER_AFTER", "PARTNER_TYPE", "ROUTING_METHOD",
+  "PD_MODEL_BEFORE", "PD_MODEL_AFTER", "CUTOFF_BEFORE", "CUTOFF_AFTER",
+  "REJECT_REASON_BEFORE", "REJECT_REASON_AFTER", "SCORE_OKB_BEFORE", "SCORE_OKB_AFTER",
 ] as const;
 export type PivotDimension = (typeof PIVOT_DIMENSIONS)[number] | string;
 
@@ -239,12 +256,12 @@ export interface PivotFilter {
   values: Array<string | number>;
 }
 
-/** Server rollup (docs v0). Backend currently answers 501 ANALYTICS_UNAVAILABLE. */
+/** Wire contract from backend PivotQuery / pinned PivotRollup.cells. */
 export interface PivotRequest {
-  rows: PivotDimension[];
-  cols: PivotDimension[];
-  filters: PivotFilter[];
-  report_id?: string | null;
+  dimensions: PivotDimension[];
+  filters: Record<string, string | number | boolean | null | Array<string | number | boolean | null>>;
+  limit?: number;
+  offset?: number;
 }
 
 export interface PivotCell {
@@ -264,13 +281,11 @@ export interface PivotTotal {
 
 export interface PivotResponse {
   run_id: string;
-  rows: PivotDimension[];
-  cols: PivotDimension[];
-  cells: PivotCell[];
-  row_totals: PivotTotal[];
-  col_totals: PivotTotal[];
-  grand_total: { count: number; group: string };
-  truncated?: boolean;
+  data_revision: string;
+  items: Array<{ dimensions: Record<string, string | number | null>; cnt: number; group_locator: string }>;
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface ApplicationsPage {

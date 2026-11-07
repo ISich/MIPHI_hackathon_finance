@@ -33,12 +33,15 @@ export function navigate(to: string): void {
 /**
  * The backend's HTML report links to {DD_REPORT_UI_BASE}/runs/{run}/reports/{report}
  * (a path, not a hash). Rewrite it to the pivot of that Run with report context.
+ * Per-application links carry ?app_id=... and open that application's attributes.
  * Returns the hash to use, or null if the path is not such a link.
  */
-export function deepLinkToHash(pathname: string): string | null {
+export function deepLinkToHash(pathname: string, search = ""): string | null {
   const m = pathname.match(/^\/runs\/([^/]+)\/reports\/([^/]+)\/?$/);
   if (!m) return null;
   const run = decodeURIComponent(m[1]!);
   const report = decodeURIComponent(m[2]!);
+  const appId = new URLSearchParams(search).get("app_id");
+  if (appId) return `${href("runs", run, "apps", appId)}?report=${encodeURIComponent(report)}`;
   return `${href("runs", run, "pivot")}?report=${encodeURIComponent(report)}`;
 }

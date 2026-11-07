@@ -19,6 +19,10 @@ const { default: RunPage } = await import("../run-monitor/RunPage.vue");
 const { default: PivotView } = await import("../pivot/PivotView.vue");
 const { default: SummaryView } = await import("../report-summary/SummaryView.vue");
 const { default: NewRun } = await import("../run-config/NewRun.vue");
+const { default: RunsList } = await import("../run-monitor/RunsList.vue");
+const { default: DatasetPivot } = await import("../datasets/DatasetPivot.vue");
+const { default: DataGrid } = await import("../datasets/DataGrid.vue");
+const { fromMatrix } = await import("../datasets/model");
 const { default: GroupApplications } = await import("../drilldown/GroupApplications.vue");
 const { default: FactApplications } = await import("../drilldown/FactApplications.vue");
 const { default: App } = await import("../App.vue");
@@ -29,6 +33,33 @@ const mnt = <P extends Record<string, unknown>>(c: Parameters<typeof mount>[0], 
 beforeEach(() => {
   resetMock();
   window.location.hash = "";
+});
+
+describe("Account dashboard totals", () => {
+  it("shows the API total and labels status counts, search and activity as a partial page", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => url === "/api/runs"
+      ? new Response(JSON.stringify({ items: Array.from({ length: 50 }, (_, i) => ({ ...run, run_id: `run_${i}` })), total: 121, limit: 50, offset: 0 }), { status: 200 })
+      : inner(url, init);
+    const w = mnt(RunsList, { overview: true });
+    await waitFor(() => expect(w.find(".metric-neutral .metric-value").text()).toBe("121"));
+    expect(w.find(".metric-success .metric-value").text()).toBe("50");
+    expect(w.find(".metric-success .metric-detail").text()).toBe("Среди последних 50");
+    expect(w.get('[role="note"]').text()).toContain("Загружены последние 50 из 121");
+    expect(w.get('[role="img"]').attributes("aria-label")).toContain("По последним 50 запускам");
+    expect(w.get('.table-footer [role="status"]').text()).toBe("Показано 50 из 121");
+    w.unmount();
+  });
+
+  it("does not show a partial-page warning when the whole account fits in one page", async () => {
+    await completedRun();
+    const w = mnt(RunsList);
+    await waitFor(() => expect(w.find(".metric-neutral .metric-value").text()).toBe("1"));
+    expect(w.find('[role="note"]').exists()).toBe(false);
+    expect(w.get(".metric-success .metric-detail").text()).toBe("Все запуски аккаунта");
+    w.unmount();
+  });
 });
 
 describe("Run monitor", () => {
@@ -70,7 +101,19 @@ describe("Run monitor", () => {
 });
 
 describe("Run journal longer than one events page", () => {
-  it("drains the whole event backlog before polling stops at a terminal status", async () => {
+  it("receives late check events and the published report in an already-open terminal monitor", async () => {
+    const run = await completedRun();
+    const w = mnt(RunPage, { runId: run.run_id, tab: "monitor", query: new URLSearchParams() });
+    await waitFor(() => expect(byTestId(w, "run-status").textContent).toBe("COMPLETED"));
+    const cfg = await testApi.configuration(run.config_id);
+    let cr = await testApi.createCheckRun(run.run_id, { checks: cfg.checks }, "late-check");
+    for (let i = 0; i < 10 && cr.status !== "COMPLETED"; i++) cr = await testApi.checkRun(cr.check_run_id);
+    expect(cr.status).toBe("COMPLETED");
+    await waitFor(() => expect(table(w, "Журнал событий").textContent).toContain("executed (MOCK)"));
+    await waitFor(() => expect(link(w, new RegExp(cr.report_id)).textContent).toContain("PUBLISHED"));
+    w.unmount();
+  });
+  it("drains the whole event backlog at a terminal status", async () => {
     resetMock({ eventsPageLimit: 3, extraEventsPerStage: 8 });
     const cfg = await testApi.createConfiguration({ name: "t", dataset_id: "ds_mock_examples", slots: {} });
     const run = await testApi.createRun({ configuration_id: cfg.config_id }, "k-long");
@@ -118,6 +161,16 @@ describe("Code links of later CheckRuns", () => {
 });
 
 describe("Explicit report context survives navigation", () => {
+  it("an application opened from HTML shows attributes and returns to the same report's pivot", async () => {
+    const run = await completedRun();
+    window.location.hash = `#/runs/${run.run_id}/apps/MOCK-0001?report=rep_X`;
+    await testApi.login("admin", "admin12345");
+    const w = mnt(App);
+    await waitFor(() => table(w, "Сравнение атрибутов"));
+    expect(w.get("h1").text()).toBe("Заявка MOCK-0001");
+    expect(link(w, /К сводной/).getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?report=rep_X`);
+    w.unmount();
+  });
   it("run tabs keep ?report=", async () => {
     const run = await completedRun();
     const w = mnt(RunPage, { runId: run.run_id, tab: "checks", query: new URLSearchParams("report=rep_X") });
@@ -138,6 +191,7 @@ describe("Explicit report context survives navigation", () => {
   });
 
   it("base-facts drill-down keeps ?report= on the way back", async () => {
+    resetMock({ serverPivot: false });
     const run = await completedRun();
     const w = mnt(PivotView, { run, query: new URLSearchParams("report=rep_X") });
     const t = await waitFor(() => table(w, "Базовые факты"));
@@ -148,6 +202,37 @@ describe("Explicit report context survives navigation", () => {
     const w2 = mnt(FactApplications, { runId: run.run_id, group: g.get("g")!, cnt: 1, report: "rep_X" });
     expect(link(w2, /К базовым фактам/).getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?report=rep_X`);
     w2.unmount();
+  });
+});
+
+describe("Dataset pivot calculation errors", () => {
+  it.each(["1e-400", "9007199254740990.5"])("rejects an edit to %s without changing the existing numeric cell", async value => {
+    const dataset = fromMatrix("numbers", [["Сумма"], [10]], "test");
+    const w = mount(DataGrid, { props: { dataset } });
+    await w.get('[aria-label="Изменить: Сумма, строка 1"]').trigger("click");
+    const input = w.get('input[aria-label="Значение: Сумма, строка 1"]');
+    await input.setValue(value);
+    await input.trigger("keydown.enter");
+    expect(w.get('[role="alert"]').text()).toContain("поддерживаемой точности");
+    expect(w.emitted("change")).toBeUndefined();
+    expect(dataset.rows).toEqual([[10]]);
+    expect((input.element as HTMLInputElement).value).toBe(value);
+    await input.trigger("keydown.esc");
+    expect(w.get('[aria-label="Изменить: Сумма, строка 1"]').text()).toBe("10");
+    w.unmount();
+  });
+
+  it("shows an unsafe subtotal as an error, blocks export and recovers with another aggregation", async () => {
+    const dataset = fromMatrix("groups", [["Group", "Value"], ["A", Number.MAX_SAFE_INTEGER], ["A", 2], ["B", -Number.MAX_SAFE_INTEGER]], "test");
+    const w = mount(DatasetPivot, { props: { dataset }, attachTo: document.body.appendChild(document.createElement("div")) });
+    expect(w.get('[role="alert"]').text()).toContain("диапазон точного расчёта");
+    expect(button(w, "Скачать CSV").disabled).toBe(true);
+    expect(w.find('[aria-label="Сводная таблица"]').exists()).toBe(false);
+    await w.setProps({ dataset: { ...dataset, pivot: { ...dataset.pivot, operation: "count" } } });
+    expect(w.find('[role="alert"]').exists()).toBe(false);
+    expect(button(w, "Скачать CSV").disabled).toBe(false);
+    expect(table(w, "Сводная таблица").textContent).toContain("3");
+    w.unmount();
   });
 });
 
@@ -310,7 +395,53 @@ describe("New check", () => {
 });
 
 describe("Pivot", () => {
+  it("maps sparse items with null/empty coordinates and pages without inventing zeroes", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => {
+      if (!url.endsWith("/pivot")) return inner(url, init);
+      const req = JSON.parse(String(init!.body));
+      const items = req.offset === 0 ? [
+        { dimensions: { PATH: null, SOURCE: "BEFORE" }, cnt: 7, group_locator: "opaque.1" },
+        { dimensions: { PATH: "", SOURCE: "AFTER" }, cnt: 3, group_locator: "opaque.2" },
+      ] : [{ dimensions: { PATH: "last", SOURCE: "AFTER" }, cnt: 2, group_locator: "opaque.3" }];
+      return new Response(JSON.stringify({ run_id: run.run_id, data_revision: run.dataset_revision_id, items, total: 101, limit: 100, offset: req.offset }), { status: 200 });
+    };
+    const w = mnt(PivotView, { run, query: new URLSearchParams("rows=PATH&cols=SOURCE&report=rep_ctx") });
+    const t = await waitFor(() => table(w, "Сводная таблица"));
+    expect([...t.querySelectorAll("a")].map(a => a.textContent)).toEqual(["7", "3"]);
+    expect(t.textContent).toContain("∅ (пусто)");
+    expect(t.querySelectorAll("td .muted")).toHaveLength(2);
+    expect(t.textContent).not.toContain("Итого");
+    await click(button(w, "Далее →"));
+    await waitFor(() => expect(table(w, "Сводная таблица").textContent).toContain("last"));
+    const calls = holder.calls.filter(c => c.url.endsWith("/pivot"));
+    expect(JSON.parse(String(calls.at(-1)!.init!.body))).toEqual({ dimensions: ["PATH", "SOURCE"], filters: {}, limit: 100, offset: 100 });
+    await w.setProps({ query: new URLSearchParams("rows=SOURCE") } as never);
+    await waitFor(() => expect(JSON.parse(String(holder.calls.filter(c => c.url.endsWith("/pivot")).at(-1)!.init!.body)).offset).toBe(0));
+    w.unmount();
+  });
+  it("shows 422 with its details and never presents it as unavailable or empty success", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => url.endsWith("/pivot")
+      ? new Response(JSON.stringify({ code: "VALIDATION_ERROR", message: "Bad dimensions", details: { field: "dimensions" }, request_id: "req-422" }), { status: 422 })
+      : inner(url, init);
+    const w = mnt(PivotView, { run, query: new URLSearchParams() });
+    await waitFor(() => expect(alertEl(w).textContent).toContain("HTTP 422"));
+    expect(text(w)).toContain("req-422");
+    expect(text(w)).toContain("dimensions");
+    expect(w.find('[data-testid="pivot-unavailable"]').exists()).toBe(false);
+    expect(w.find('table').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("rejects the old rows/cols payload in the contract mock", async () => {
+    const run = await completedRun();
+    await expect(testApi.request("POST", `/api/runs/${run.run_id}/pivot`, { body: { rows: ["PATH"], cols: [], filters: [] } })).rejects.toMatchObject({ status: 422 });
+  });
   it("shows the honest 501 reason and falls back to D4 base facts without totals", async () => {
+    resetMock({ serverPivot: false });
     const run = await completedRun();
     const w = mnt(PivotView, { run, query: new URLSearchParams("rows=PATH") });
     await waitFor(() => expect(byTestId(w, "pivot-unavailable").textContent).toContain("ANALYTICS_UNAVAILABLE"));
@@ -322,15 +453,14 @@ describe("Pivot", () => {
     w.unmount();
   });
 
-  it("with a server rollup: renders distinct counts/totals from the server and links cells via opaque locators", async () => {
+  it("renders distinct cell counts from the server and links cells via opaque locators", async () => {
     resetMock({ serverPivot: true });
     const run = await completedRun();
     const w = mnt(PivotView, { run, query: new URLSearchParams("rows=PATH&cols=SOURCE&f.DIFF_FLAG=1") });
     const t = await waitFor(() => table(w, "Сводная таблица"));
     const req = holder.calls.find((c) => c.url.endsWith("/pivot"))!;
-    expect(JSON.parse(String(req.init!.body))).toMatchObject({ rows: ["PATH"], cols: ["SOURCE"], filters: [{ dim: "DIFF_FLAG", op: "in", values: ["1"] }] });
-    // grand total = distinct apps with any diff (4), not the sum of cells
-    expect(t.querySelector('[data-testid="grand-total"]')!.textContent).toContain("4");
+    expect(JSON.parse(String(req.init!.body))).toEqual({ dimensions: ["PATH", "SOURCE"], filters: { DIFF_FLAG: ["1"] }, limit: 100, offset: 0 });
+    expect(t.textContent).not.toContain("Итого");
     expect(t.querySelector("a")!.getAttribute("href")).toMatch(new RegExp(`#/runs/${run.run_id}/groups/[^?]+\\?back=`));
     w.unmount();
   });
@@ -348,9 +478,9 @@ describe("Pivot", () => {
   it("drill-down page shows the full distinct total, not the page length", async () => {
     resetMock({ serverPivot: true });
     const run = await completedRun();
-    const p = await testApi.pivot(run.run_id, { rows: [], cols: [], filters: [] });
-    const w = mnt(GroupApplications, { runId: run.run_id, group: p.grand_total.group, back: "rows=PATH" });
-    await waitFor(() => expect(byTestId(w, "group-total").textContent).toContain("Всего различных заявок: 6"));
+    const p = await testApi.pivot(run.run_id, { dimensions: ["SOURCE"], filters: {} });
+    const w = mnt(GroupApplications, { runId: run.run_id, group: p.items[0]!.group_locator, back: "rows=PATH" });
+    await waitFor(() => expect(byTestId(w, "group-total").textContent).toContain(`Всего различных заявок: ${p.items[0]!.cnt}`));
     expect(link(w, /К сводной/).getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?rows=PATH`);
     w.unmount();
   });

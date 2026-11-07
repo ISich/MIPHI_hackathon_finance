@@ -22,14 +22,15 @@ import type {
   ScriptKind,
   ScriptRef,
 } from "../api/types";
-import { PROCEDURE_SLOTS, RUN_STAGES } from "../api/types";
+import { PROCEDURE_SLOTS, RUN_STAGES, PIVOT_DIMENSIONS } from "../api/types";
 
 export interface MockOptions {
   /** Mirrors backend DD_EXECUTION_MODE: false = builtin-only (backend default). */
   customExecution: boolean;
+  /** Persist only the mock sign-in flag between page reloads in the same tab. */
+  persistSession?: boolean;
   /**
-   * Emulate the FUTURE D4 server pivot (POST /pivot + group locators). Default
-   * false = like the real backend today: 501 ANALYTICS_UNAVAILABLE.
+   * Current PivotQuery/items wire contract. Explicit false tests old 501 servers.
    */
   serverPivot?: boolean;
   /** How many GET polls a run needs per stage. */
@@ -112,6 +113,7 @@ const FACTS: Fact[] = COMPARISON.flatMap((r) => {
   return sides.map((s) => ({
     APP_ID: r.APP_ID,
     dims: {
+      ...Object.fromEntries(PIVOT_DIMENSIONS.map(d => [d, SEGMENTS[r.APP_ID]?.[d] ?? null])),
       PREFIX: r.PREFIX,
       CLASS: r.CLASS,
       SUFFIX: r.SUFFIX,
@@ -121,6 +123,7 @@ const FACTS: Fact[] = COMPARISON.flatMap((r) => {
       VALUE_ADJUSTED: s === "BEFORE" ? r.ADJUSTED_BEFORE : r.ADJUSTED_AFTER,
       DIFF_FLAG: r.DIFF_FLAG,
       SOURCE: s,
+      CHANGE_TYPE: r.CHANGE_TYPE,
     },
   }));
 });
@@ -171,6 +174,21 @@ interface MockCheckRun extends CheckRun {
 }
 
 export function createMockFetch(opts: MockOptions) {
+  let signedIn = false;
+  const mockUser = { username: "admin", display_name: "Аналитик" };
+  if (opts.persistSession) {
+    try { signedIn = sessionStorage.getItem("mock.signedIn") === "1"; } catch { /* storage may be disabled */ }
+  }
+  function mockSession() {
+    return { authenticated: signedIn, kind: signedIn ? "account" : "anonymous-session", user: signedIn ? mockUser : null,
+      cookie_secure: false, execution_mode: opts.customExecution ? "trusted-local" : "builtin-only" };
+  }
+  function setSignedIn(value: boolean) {
+    signedIn = value;
+    if (opts.persistSession) {
+      try { sessionStorage.setItem("mock.signedIn", value ? "1" : "0"); } catch { /* in-memory fallback */ }
+    }
+  }
   const ticksPerStage = opts.ticksPerStage ?? 1;
   const custom = opts.customExecution;
   let seq = 0;
@@ -455,8 +473,28 @@ export function createMockFetch(opts: MockOptions) {
     const idemKey = headers.get("Idempotency-Key");
 
     if (p === "/ready") return json(200, { ready: true, checks: [], execution_mode: custom ? "trusted-local" : "builtin-only", warnings: ["MOCK backend"] });
-    if (p === "/api/session") return json(200, { authenticated: false, kind: "anonymous-session (MOCK)" });
+    if (p === "/api/session" && method === "GET") return json(200, mockSession());
+    if (p === "/api/auth/login" && method === "POST") {
+      if (String(body?.username ?? "").trim() !== "admin" || body?.password !== "admin12345")
+        return err(401, "INVALID_CREDENTIALS", "Неверный логин или пароль.");
+      setSignedIn(true);
+      return json(200, mockSession());
+    }
+    if (p === "/api/auth/logout" && method === "POST") {
+      setSignedIn(false);
+      return json(200, mockSession());
+    }
     if (p === "/api/datasets" && method === "GET") return json(200, datasets);
+    if (/^\/api\/datasets\/[^/]+\/table$/.test(p) && method === "GET") {
+      const datasetId = decodeURIComponent(p.split("/")[3]!);
+      if (!datasets.some(d => d.dataset_id === datasetId)) return err(404, "NOT_FOUND", "dataset not found");
+      const side = url.searchParams.get("side") === "before" ? "before" : "after";
+      return json(200, { dataset_id: datasetId, side, columns: ["APP_ID", "Регион", "Продукт", "Решение", "Сумма"], rows: [
+        ["MOCK-1001", "Москва", "Кредит", "Одобрено", side === "before" ? 400000 : 450000],
+        ["MOCK-1002", "Казань", "Ипотека", "Одобрено", 6200000],
+        ["MOCK-1003", "Москва", "Кредит", side === "before" ? "Отказ" : "Одобрено", 700000],
+      ] });
+    }
     if (p === "/api/script-kinds") return json(200, kinds);
     if (p === "/api/scripts" && method === "GET") {
       const kind = url.searchParams.get("kind");
@@ -593,13 +631,13 @@ export function createMockFetch(opts: MockOptions) {
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/pivot$/)) && method === "POST") {
       const run = completedRun(m[1]!);
       if (run instanceof Response) return run;
-      if (!opts.serverPivot) return err(501, "ANALYTICS_UNAVAILABLE", "Server-side pivot rollup is not implemented in the pinned D4 core; use /pivot-facts and /pivot-facts/applications");
+      if (opts.serverPivot === false) return err(501, "ANALYTICS_UNAVAILABLE", "Server-side pivot rollup unavailable");
       return serverPivot(run, body ?? {});
     }
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/groups\/([^/]+)\/applications$/))) {
       const run = completedRun(m[1]!);
       if (run instanceof Response) return run;
-      if (!opts.serverPivot) return err(501, "ANALYTICS_UNAVAILABLE", "Opaque group locators are not implemented in the pinned D4 core");
+      if (opts.serverPivot === false) return err(501, "ANALYTICS_UNAVAILABLE", "Opaque group locators unavailable");
       let g;
       try {
         g = decodeGroup(decodeURIComponent(m[2]!));
@@ -679,14 +717,16 @@ export function createMockFetch(opts: MockOptions) {
   }
 
   function serverPivot(run: MockRun, b: Json): Response {
-    const rows = (b.rows as string[]) ?? [];
-    const cols = (b.cols as string[]) ?? [];
-    const filters = (b.filters as Array<{ dim: string; values: unknown[] }>) ?? [];
-    for (const d of [...rows, ...cols, ...filters.map((f) => f.dim)]) {
-      if (!(FACT_DIMS as readonly string[]).includes(d)) return err(422, "PIVOT_DIMENSION_INVALID", `Unknown dimension ${d}`, { allowed: FACT_DIMS });
+    if (Object.keys(b).some(k => !["dimensions", "filters", "limit", "offset"].includes(k)) || !Array.isArray(b.dimensions) || !b.dimensions.length || new Set(b.dimensions).size !== b.dimensions.length || (b.filters !== undefined && (!b.filters || Array.isArray(b.filters) || typeof b.filters !== "object"))) return err(422, "VALIDATION_ERROR", "Expected unique nonempty dimensions and filters object");
+    const dims = b.dimensions as string[];
+    const base = (b.filters ?? {}) as Record<string, unknown>;
+    const limit = (b.limit ?? 100) as number;
+    const offset = (b.offset ?? 0) as number;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500 || !Number.isInteger(offset) || offset < 0) return err(422, "VALIDATION_ERROR", "Invalid pagination");
+    for (const d of [...dims, ...Object.keys(base)]) {
+      if (!(PIVOT_DIMENSIONS as readonly string[]).includes(d)) return err(422, "PIVOT_DIMENSION_INVALID", `Unknown dimension ${d}`, { allowed: PIVOT_DIMENSIONS });
     }
-    const base: Record<string, unknown> = Object.fromEntries(filters.map((f) => [f.dim, f.values]));
-    const facts = FACTS.filter((f) => Object.entries(base).every(([k, v]) => (v as unknown[]).map(String).includes(String(f.dims[k as keyof FactDims]))));
+    const facts = FACTS.filter((f) => Object.entries(base).every(([k, v]) => (Array.isArray(v) ? v : [v]).map(String).includes(String(f.dims[k as keyof FactDims]))));
     const keyOf = (f: Fact, dims: string[]) => dims.map((d) => f.dims[d as keyof FactDims] ?? null);
     const uniq = (dims: string[]) => {
       const seen = new Map<string, Array<string | number | null>>();
@@ -698,22 +738,15 @@ export function createMockFetch(opts: MockOptions) {
       const full = { ...base, ...match };
       return { count: matchFacts(full).size, group: encodeGroup({ run: run.run_id, match: full }) };
     };
-    const rowKeys = uniq(rows);
-    const colKeys = uniq(cols);
-    const cells = [];
-    for (const rk of rowKeys)
-      for (const ck of colKeys) {
-        const c = cell({ ...zip(rows, rk), ...zip(cols, ck) });
-        if (c.count > 0) cells.push({ row: rk, col: ck, ...c });
-      }
+    const items = uniq(dims).map(k => {
+      const dimensions = zip(dims, k);
+      const c = cell(dimensions);
+      return { dimensions, cnt: c.count, group_locator: c.group };
+    });
     return json(200, {
       run_id: run.run_id,
-      rows,
-      cols,
-      cells,
-      row_totals: rowKeys.map((k) => ({ key: k, ...cell(zip(rows, k)) })),
-      col_totals: colKeys.map((k) => ({ key: k, ...cell(zip(cols, k)) })),
-      grand_total: cell({}),
+      data_revision: run.dataset_revision_id,
+      items: items.slice(offset, offset + limit), total: items.length, limit, offset,
     });
   }
 

@@ -11,11 +11,13 @@ import type {
   CreateRunRequest,
   CreateScriptRequest,
   Dataset,
+  DatasetTable,
   ErrorEnvelope,
   EventsPage,
   PivotFactsPage,
   PivotRequest,
   PivotResponse,
+  Page,
   Readiness,
   Report,
   ReportChecks,
@@ -25,6 +27,7 @@ import type {
   ScriptKind,
   ScriptKindName,
   Summary,
+  Session,
   UploadScriptRequest,
 } from "./types";
 
@@ -69,7 +72,7 @@ export class ApiError extends Error {
   }
   /** Feature not implemented by the analytics core yet (501). */
   get isUnavailable(): boolean {
-    return this.code === CODES.ANALYTICS_UNAVAILABLE || this.status === 501;
+    return this.status === 501;
   }
 }
 
@@ -221,6 +224,22 @@ export class ApiClient {
   }
 
   // ------------------------------------------------------------ system
+  currentSession(): Promise<Session> {
+    // This request itself bootstraps the cookie; do not issue a second session request.
+    return this.raw<Session>("GET", "/api/session").then((session) => {
+      this.session = Promise.resolve();
+      return session;
+    });
+  }
+
+  login(username: string, password: string): Promise<Session> {
+    return this.request("POST", "/api/auth/login", { body: { username, password } });
+  }
+
+  logout(): Promise<Session> {
+    return this.request("POST", "/api/auth/logout");
+  }
+
   ready(): Promise<Readiness> {
     // /ready answers 503 with a plain body (not an error envelope) when not ready.
     return this.request<Readiness>("GET", "/ready").catch((e) => {
@@ -232,6 +251,10 @@ export class ApiClient {
   // ------------------------------------------------------------ registry
   async datasets(): Promise<Dataset[]> {
     return listOf<Dataset>(await this.request("GET", "/api/datasets"));
+  }
+
+  async datasetTable(id: string, side: "before" | "after"): Promise<DatasetTable> {
+    return this.request("GET", `/api/datasets/${enc(id)}/table?side=${side}`) as Promise<DatasetTable>;
   }
   async scripts(kind?: ScriptKindName): Promise<Script[]> {
     const q = kind ? `?kind=${enc(kind)}` : "";
@@ -271,6 +294,10 @@ export class ApiClient {
   }
   async runs(): Promise<Run[]> {
     return listOf<Run>(await this.request("GET", "/api/runs"));
+  }
+  async runsPage(): Promise<Page<Run>> {
+    const body = await this.request<Page<Run>>("GET", "/api/runs");
+    return { ...body, items: listOf<Run>(body) };
   }
   run(id: string): Promise<Run> {
     return this.request("GET", `/api/runs/${enc(id)}`);

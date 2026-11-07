@@ -6,7 +6,8 @@ import type { ReportChecks, Run } from "../api/types";
 import AsyncView from "../components/AsyncView.vue";
 import EmptyView from "../components/EmptyView.vue";
 import ErrorView from "../components/ErrorView.vue";
-import { useApi } from "../composables/useApi";
+import { useApi, usePolling } from "../composables/useApi";
+import { timing } from "../config";
 import { href, navigate } from "../router";
 import ReportBody from "./ReportBody.vue";
 
@@ -17,6 +18,7 @@ import ReportBody from "./ReportBody.vue";
 const props = defineProps<{ run: Run; reportId: string | null }>();
 const selected = computed(() => props.reportId ?? props.run.initial_report_id ?? null);
 const reports = useApi(() => `reports:${props.run.run_id}`, () => api.reports(props.run.run_id));
+usePolling(() => true, () => timing.listPollMs, async () => { if (!reports.loading) reports.reload(); });
 /**
  * A report is shown only if it belongs to this Run: it must be listed by
  * GET /runs/{id}/reports, and the loaded document must carry this run_id and

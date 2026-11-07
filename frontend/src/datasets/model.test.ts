@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+import { buildPivot, fromMatrix, numberValue } from "./model";
+
+describe("dataset tables", () => {
+  it.each(["1e-400", "-1e-400", "9007199254740990.5", "-9007199254740990.5", "0.100000000000000000001", "1.0000000000000001", "4e-324", "1e400"])("preserves unsupported decimal %s as text instead of rounding it", value => {
+    expect(numberValue(value)).toBeNull();
+    const table = fromMatrix("precision", [["Value"], [value], ["12.5"]], "test");
+    expect(table.fields[0]!.type).toBe("text");
+    expect(table.rows).toEqual([[value], ["12.5"]]);
+    expect(table.pivot.operation).toBe("count");
+  });
+
+  it.each([
+    ["1 234,50", 1234.5], [".5", 0.5], ["+001.2300e2", 123], ["12300e-2", 123],
+    ["0.1", 0.1], ["1.2345678901234567", 1.2345678901234567], ["5e-324", 5e-324],
+    ["9007199254740991", Number.MAX_SAFE_INTEGER], ["0e999999999999999999999", 0],
+  ])("accepts supported decimal notation %s", (value, expected) => {
+    expect(numberValue(String(value))).toBe(expected);
+  });
+
+  it("handles localized numbers, preserves identifiers and deduplicates headers", () => {
+    const table = fromMatrix("data", [["ID", "Сумма", "Сумма", ""], ["001", "1 234,50", 10, null], ["002", "", 20, "text"]], "test");
+    expect(table.fields.map(f => f.name)).toEqual(["ID", "Сумма", "Сумма (2)", "Столбец 4"]);
+    expect(table.rows[0]).toEqual(["001", 1234.5, 10, null]);
+    expect(numberValue(" ")).toBeNull(); expect(numberValue(true)).toBeNull(); expect(numberValue("Infinity")).toBeNull();
+    expect(fromMatrix("ids", [["ID"], ["12345678901234567890"]], "test").rows[0]![0]).toBe("12345678901234567890");
+  });
+  it("groups multiple axes without delimiter collisions and retains zero", () => {
+    const table = fromMatrix("data", [["A", "B", "C", "Value"], ["a|b", "c", "X", 0], ["a", "b|c", "X", 5]], "test");
+    const result = buildPivot(table, { ...table.pivot, rows: ["c0", "c1"], columns: ["c2"], value: "c3", operation: "sum" });
+    expect(result.rows).toHaveLength(2); expect(result.total).toBe(5);
+    expect(result.rows.map(([key]) => result.rowTotal(key)).sort()).toEqual([0, 5]);
+  });
+  it("calculates weighted mean totals from source rows and excludes blank values", () => {
+    const table = fromMatrix("data", [["Region", "Product", "Value"], ["A", "X", 10], ["A", "X", 20], ["B", "Y", 90], ["B", "Y", null]], "test");
+    const result = buildPivot(table, { ...table.pivot, rows: ["c0"], columns: ["c1"], value: "c2", operation: "avg" });
+    expect(result.total).toBe(40); expect(result.count).toBe(4); expect(result.numeric).toBe(3);
+    expect(result.cell(result.rows[0]![0], result.columns[1]![0])).toBeNull();
+    const filtered = buildPivot(table, { ...table.pivot, value: "c2", operation: "sum", filterField: "c0", filterValue: JSON.stringify("B") });
+    expect(filtered.total).toBe(90); expect(filtered.count).toBe(2);
+  });
+  it("distinguishes literal empty labels, rejects partial results and handles no rows", () => {
+    const table = fromMatrix("data", [["Group", "Value"], [null, 2], ["(пусто)", 3]], "test");
+    expect(buildPivot(table, { ...table.pivot, rows: ["c0"], operation: "count" }).rows).toHaveLength(2);
+    const empty = buildPivot({ ...table, rows: [] }, { ...table.pivot, operation: "count" });
+    expect(empty.count).toBe(0); expect(empty.total).toBe(0);
+    expect(() => fromMatrix("large", [Array(201).fill("x")], "test")).toThrow(/200 столбцов/);
+    const many = { ...table, rows: Array.from({ length: 1001 }, (_, i) => [String(i), i]) };
+    expect(() => buildPivot(many, { ...table.pivot, rows: ["c0"] })).toThrow(/Слишком много групп/);
+  });
+
+  it("keeps integer sums exact through cancellation and rejects unsafe totals", () => {
+    const max = Number.MAX_SAFE_INTEGER;
+    const table = fromMatrix("large", [["Value"], [max], [2], [-max]], "test");
+    expect(buildPivot(table, table.pivot).total).toBe(2);
+    const unsafe = { ...table, rows: [[max], [2]] };
+    expect(() => buildPivot(unsafe, table.pivot)).toThrow(/диапазон точного расчёта/);
+    expect(() => buildPivot({ ...table, rows: [[-max], [-2]] }, table.pivot)).toThrow(/диапазон точного расчёта/);
+    expect(buildPivot(unsafe, { ...table.pivot, operation: "count" }).total).toBe(2);
+    expect(buildPivot(unsafe, { ...table.pivot, operation: "max" }).total).toBe(max);
+    expect(buildPivot(unsafe, { ...table.pivot, operation: "min" }).total).toBe(2);
+    expect(buildPivot({ ...table, rows: [[max], [max]] }, { ...table.pivot, operation: "avg" }).total).toBe(max);
+  });
+
+  it("rejects an unsafe group even when the overall sum is safe", () => {
+    const table = fromMatrix("groups", [["Group", "Value"], ["A", Number.MAX_SAFE_INTEGER], ["A", 2], ["B", -Number.MAX_SAFE_INTEGER]], "test");
+    expect(() => buildPivot(table, table.pivot)).toThrow(/диапазон точного расчёта/);
+  });
+
+  it("retains small values in mixed sums", () => {
+    const table = fromMatrix("mixed", [["Value"], [Number.MAX_SAFE_INTEGER], [2], [-Number.MAX_SAFE_INTEGER], [0.5]], "test");
+    expect(buildPivot(table, table.pivot).total).toBe(2.5);
+    const tiny = { ...table, rows: [[0.1], [0.2], [-0.3]] };
+    expect(buildPivot(tiny, table.pivot).total).toBeCloseTo(0, 14);
+  });
+});

@@ -3,6 +3,9 @@
 // with what the backend API itself returns, never with constants.
 import { test, expect } from "./guard";
 import type { APIRequestContext, Page } from "@playwright/test";
+import { signIn } from "./login";
+
+test.beforeEach(async ({ page }) => { await signIn(page); });
 
 const TRUSTED = process.env.E2E_TRUSTED === "1";
 
@@ -26,10 +29,9 @@ async function startRealRun(page: Page): Promise<string> {
   return runId;
 }
 
-test("real: configuration → Run → monitor/events → summary → pivot/facts → drill-down → application → checks", async ({ page, browserErrors }, info) => {
-  // page.request shares the browser cookie = the same anonymous owner session
+test("real: configuration → Run → monitor/events → summary → pivot → drill-down → application → checks", async ({ page }, info) => {
+  // page.request shares the browser cookie = the same authenticated account session
   const request = page.request;
-  browserErrors.allow({ method: "POST", url: /^\/api\/runs\/[^/]+\/pivot$/, status: 501 }); // documented: D4 rollup not implemented
   const runId = await startRealRun(page);
   // journal shows real stage events with code snapshot links
   const journal = page.getByRole("table", { name: "Журнал событий" });
@@ -45,19 +47,21 @@ test("real: configuration → Run → monitor/events → summary → pivot/facts
   await expect(page.getByTestId("tile-decision")).toContainText(String(summary.decision_changed_apps));
 
   await page.getByRole("link", { name: "Сводная (pivot)" }).click();
-  const unavailable = page.getByTestId("pivot-unavailable");
   const table = page.getByRole("table", { name: "Сводная таблица" });
-  await expect(unavailable.or(table)).toBeVisible();
-  if (await unavailable.isVisible()) {
-    info.annotations.push({ type: "pivot", description: "backend server rollup 501 ANALYTICS_UNAVAILABLE → base facts fallback used" });
-    const facts = page.getByRole("table", { name: "Базовые факты" });
-    await expect(facts).toBeVisible();
-    await facts.getByRole("link").first().click();
-    await expect(page.getByTestId("group-total")).toContainText("Получено заявок");
-  } else {
-    await table.getByRole("link").first().click();
-    await expect(page.getByTestId("group-total")).toContainText("Всего различных заявок");
-  }
+  await expect(table).toBeVisible();
+  const pending = page.waitForResponse(r => r.url().endsWith(`/api/runs/${runId}/pivot`) && r.request().method() === "POST");
+  await page.getByRole("combobox", { name: "Добавить колонку" }).selectOption("CHANGE_TYPE");
+  const response = await pending;
+  expect(response.status()).toBe(200);
+  expect(response.request().postDataJSON()).toEqual({ dimensions: ["DIFF_FLAG", "CHANGE_TYPE"], filters: {}, limit: 100, offset: 0 });
+  const pivot = await response.json();
+  expect(pivot.items.length).toBeGreaterThan(0);
+  await expect(table.getByRole("link")).toHaveCount(pivot.items.length);
+  const first = pivot.items[0];
+  const cell = table.locator(`a[href*="${encodeURIComponent(first.group_locator)}"]`);
+  await expect(cell).toHaveText(String(first.cnt));
+  await cell.click();
+  await expect(page.getByTestId("group-total")).toContainText(`Всего различных заявок: ${first.cnt}`);
   const appLink = page.locator(".app-list a").first();
   await expect(appLink).toBeVisible();
   await appLink.click();
@@ -76,18 +80,24 @@ test("real: configuration → Run → monitor/events → summary → pivot/facts
   expect(await html.text()).toContain(`/runs/${runId}/reports/${run.initial_report_id}`);
 });
 
-test("real: a fresh browser gets exactly one anonymous session on first load (no parallel-session race)", async ({ page }) => {
-  const issued: string[] = [];
-  page.on("response", async (r) => {
-    const sc = (await r.allHeaders())["set-cookie"];
-    if (sc && sc.includes("dd_session=")) issued.push(r.url());
+test("real: an open terminal Run monitor receives a later builtin CheckRun and report without reload", async ({ page }) => {
+  const runId = await startRealRun(page);
+  const request = page.request;
+  const run = await api<{ config_id: string }>(request, `/api/runs/${runId}`);
+  const config = await api<{ checks: Array<{ script_id: string }> }>(request, `/api/configurations/${run.config_id}`);
+  const response = await request.post(`/api/runs/${runId}/check-runs`, {
+    headers: { "Idempotency-Key": `late-monitor-${Date.now()}` }, data: { checks: config.checks },
   });
-  await page.goto("/#/scripts/new"); // fires several API calls at once
-  await expect(page.getByTestId("exec-mode")).toBeVisible();
-  await page.goto("/#/runs/new");
-  await expect(page.getByRole("combobox", { name: "Процедура normalize" })).toBeVisible();
-  expect(issued).toHaveLength(1);
-  expect(issued[0]).toContain("/api/session");
+  expect(response.status()).toBe(202);
+  const accepted = await response.json();
+  await expect.poll(async () => (await api<{ status: string }>(request, `/api/check-runs/${accepted.check_run_id}`)).status, { timeout: 120_000 }).toBe("COMPLETED");
+  const events = await api<{ items: Array<{ seq: number; check_run_id: string | null }> }>(request, `/api/runs/${runId}/events?after=0`);
+  const late = events.items.filter(e => e.check_run_id === accepted.check_run_id);
+  expect(late.length).toBeGreaterThan(0);
+  const journal = page.getByRole("table", { name: "Журнал событий" });
+  for (const event of late) await expect(journal.locator("tr").filter({ has: page.locator("td:first-child", { hasText: new RegExp(`^${event.seq}$`) }) })).toHaveCount(1);
+  await expect(page.getByRole("link", { name: `${accepted.report_id} — PUBLISHED`, exact: true })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`#/runs/${runId}`));
 });
 
 test("real: another session cannot read this Run (owner scope)", async ({ page, request }) => {
@@ -99,7 +109,7 @@ test("real: another session cannot read this Run (owner scope)", async ({ page, 
 });
 
 test("real: new check — builtin-only refusal or trusted-local new report", async ({ page, browserErrors }, info) => {
-  // page.request shares the browser cookie = the same anonymous owner session
+  // page.request shares the browser cookie = the same authenticated account session
   const request = page.request;
   if (!TRUSTED) browserErrors.allow({ method: "POST", url: /^\/api\/runs\/[^/]+\/check-runs$/, status: 403 }); // documented refusal in builtin-only
   const runId = await startRealRun(page);

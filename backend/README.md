@@ -67,6 +67,41 @@ Full open dataset (not in this repo; put it under an allowlisted root, e.g. `DD_
     --before RUN-20260827-0001/RESULTS/BEFORE_MASTER --after RUN-20260827-0001/RESULTS/AFTER_BETA
 ```
 
+## Account sign-in
+
+The UI signs in through `POST /api/auth/login` with `{ "username": "admin", "password": "admin12345" }`.
+`GET /api/session` returns `authenticated`, `kind`, `user: { username, display_name } | null`,
+`cookie_secure`, and `execution_mode`. `POST /api/auth/logout` revokes the current token and returns
+a new anonymous session. Session responses are not cached. Cookies remain HttpOnly and SameSite=Lax;
+the server enforces the 30-day session lifetime too.
+
+One basic account is initialized on API startup:
+
+| Variable | Local default | Purpose |
+|---|---|---|
+| `DD_AUTH_USERNAME` | `admin` | Login name |
+| `DD_AUTH_PASSWORD` | `admin12345` | Password, 8–256 characters |
+| `DD_AUTH_DISPLAY_NAME` | `Аналитик` | Name shown in the UI |
+
+The default password is for local development; a private `DD_AUTH_PASSWORD` is required when
+`DD_ALLOWED_HOSTS` includes non-loopback names. Passwords are stored as salted PBKDF2-SHA256 hashes
+(600,000 iterations) in SQLite. Keep the configured password in the server environment across restarts.
+Changing it on restart invalidates existing sessions while preserving the account's data and owner ID.
+Changing the configured username also renames the bootstrap account and revokes its sessions. Only
+the configured username can sign in. Legacy extra accounts created by older versions are inactive
+and their sessions are revoked; their stored work is retained. If the target username already exists
+in a legacy database, that account remains the selected owner; otherwise the original account is renamed.
+Request strings containing lone Unicode surrogates return a 422 validation envelope before hashing or storage.
+Failed logins have a shared persistent limit of 10 attempts per minute. Registration, roles, and password
+recovery are not implemented.
+
+Account runs/scripts belong to a stable owner across browsers and logins. Logging out revokes only
+the current browser's session. The existing anonymous API remains available for compatibility,
+with separate owner-scoped data; sign-in does not migrate anonymous work into the account.
+
+For UI/auth development on macOS, run the API with `DD_EMBEDDED_WORKER=0`; full calculations still
+require a Linux worker. The auth tests can run without it: `python -m pytest tests/test_auth.py -q`.
+
 ## Smoke and tests
 
 ```bash
@@ -118,6 +153,8 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 | `DD_REPORT_UI_BASE` | `http://127.0.0.1:5173` | absolute UI base embedded in HTML reports (provisional route `/runs/{run}/reports/{report}`) |
 
 ## API overview
+
+`GET /api/datasets/{dataset_id}/table?side=before|after` exposes a read-only table of the current source JSON files for the UI table workspace. Access follows existing dataset ownership/shared rules. The response includes `dataset_id`, `side`, `columns`, and scalar `rows`; nested objects use JSON Pointer paths, nested arrays remain JSON text, and `_file` identifies the source. A root array yields one row per element. The endpoint rejects invalid/non-finite JSON and returns 413 rather than a partial snapshot when the complete selection exceeds 10 MiB, 20,000 rows or 200 columns. It reuses allowlisted path validation and bounded regular-file reads. Editing the resulting browser copy does not write to the dataset or create a run/revision.
 
 Envelope for every error: `{code, message, details, request_id}`; `x-request-id` header on every response.
 Codes: 202 accepted run/check-run · 400 `IDEMPOTENCY_KEY_REQUIRED` / `IDEMPOTENCY_KEY_INVALID` / unknown `Host` ·

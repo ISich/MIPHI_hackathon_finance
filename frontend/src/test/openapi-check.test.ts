@@ -1,5 +1,5 @@
 // The OpenAPI contract checker must FAIL on incompatible route bindings, not
-// only on missing routes. Fixture: backend-night openapi.json (feat/backend-night cc8fc9c).
+// only on missing routes. Uses this checkout's actual backend/openapi.json.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SCRIPT = join(__dirname, "../../scripts/check-openapi.mjs");
-const FIXTURE = join(__dirname, "../../scripts/fixtures/backend-openapi.json");
+const FIXTURE = join(__dirname, "../../../backend/openapi.json");
 type Spec = { paths: Record<string, Record<string, any>>; components: { schemas: Record<string, any> } };
 const load = (): Spec => JSON.parse(readFileSync(FIXTURE, "utf8"));
 
@@ -24,6 +24,19 @@ function run(spec: Spec): { ok: boolean; out: string } {
 }
 
 describe("check-openapi", () => {
+  it("rejects an array in place of the pivot filters object", () => {
+    const s = load();
+    s.components.schemas.PivotQuery.properties.filters = { type: "array", items: { type: "string" } };
+    const r = run(s);
+    expect(r.ok).toBe(false);
+    expect(r.out).toContain("PivotQuery.filters");
+  });
+  it("rejects the obsolete pivot payload shape", () => {
+    const s = load();
+    s.components.schemas.PivotQuery.required = ["rows", "cols"];
+    delete s.components.schemas.PivotQuery.properties.dimensions;
+    expect(run(s).ok).toBe(false);
+  });
   it("passes on the real backend spec", () => {
     const r = run(load());
     expect(r.out).toContain("OpenAPI contract check: OK");
