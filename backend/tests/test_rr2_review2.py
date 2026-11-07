@@ -56,8 +56,7 @@ def test_worker_sigkill_descendants_are_cleaned_before_job_is_released(env, monk
             gc_pid = int(pid_file.read_text())
             os.kill(w1.pid, signal.SIGKILL)       # worker crash: no normal cleanup runs
             w1.wait()
-            time.sleep(0.5)
-            assert _alive(gc_pid)                 # PDEATHSIG does not reach grandchildren
+            # (since the containment supervisor, the grandchild may already be gone here; that is fine)
             w2 = subprocess.Popen([sys.executable, "-m", "dd_backend", "worker"], env=dict(os.environ),
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             try:
