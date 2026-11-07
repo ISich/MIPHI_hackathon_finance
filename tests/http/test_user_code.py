@@ -40,14 +40,34 @@ def trusted(execution_mode):
         pytest.skip("positive user-code path needs trusted-local server (builtin-only refusal is tested elsewhere)")
 
 
-def test_example_procedures_run_in_every_slot(api_a, examples_root, trusted):
-    """FR-018/AC-13: replace all four procedures with workspace code (the published examples), no rebuild."""
+ENTRYPOINT = {"normalize": "normalize", "compare": "compare", "segments": "build_segment", "aggregate": "aggregate"}
+
+
+def canary_wrapped(example: str, slot: str, folder, tag: str) -> str:
+    """The published example + a wrapper that leaves a canary each time the SELECTED code is executed."""
+    fn = ENTRYPOINT[slot]
+    return (example + f"\n\nimport pathlib as _qa_p\n_qa_orig = {fn}\n\n"
+            f"def {fn}(*args, **kwargs):\n"
+            f"    (_qa_p.Path({str(folder)!r}) / '{slot}-{tag}-run').write_text('x')\n"
+            f"    return _qa_orig(*args, **kwargs)\n")
+
+
+def test_example_procedures_run_in_every_slot(api_a, examples_root, trusted, tmp_path):
+    """FR-018/AC-13: replace all four procedures with workspace code, no rebuild. CR5 #3: each slot's uploaded
+    code must be OBSERVED executing (its own canary), not only recorded as a snapshot."""
+    import uuid
+
+    canary = tmp_path / "canary"
+    canary.mkdir()
+    canary.chmod(0o777)
+    tag = uuid.uuid4().hex[:8]
     kinds = {k["kind"]: k for k in api_a.get("/api/script-kinds").json()}
     slots = {}
-    for k in ("normalize", "compare", "segments", "aggregate"):
-        r = api_a.script(k, kinds[k]["example"])
+    for k in ENTRYPOINT:
+        r = api_a.script(k, canary_wrapped(kinds[k]["example"], k, canary, tag))
         assert r.status_code == 201, r.text
         slots[k] = {"script_id": r.json()["script_id"]}
+    assert list(canary.iterdir()) == []  # storing code does not execute it
     ds = api_a.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
     cfg = api_a.config(ds["dataset_id"], slots=slots)
     final = api_a.wait(f"/api/runs/{api_a.start_run(cfg['config_id']).json()['run_id']}")
@@ -55,6 +75,7 @@ def test_example_procedures_run_in_every_slot(api_a, examples_root, trusted):
     for k, ref in slots.items():
         snap = api_a.get(f"/api/runs/{final['run_id']}/code/{k}").json()
         assert snap["script_id"] == ref["script_id"] and snap["source"] == "workspace"
+    assert sorted(p.name for p in canary.iterdir()) == sorted(f"{k}-{tag}-run" for k in ENTRYPOINT)
 
 
 def test_uploaded_py_check_runs(api_a, completed_example_run, trusted):
