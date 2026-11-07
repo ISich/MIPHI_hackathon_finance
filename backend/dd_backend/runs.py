@@ -124,6 +124,7 @@ class RunService:
             inputs = {
                 "dataset_id": dataset["dataset_id"], "revision_id": revision["revision_id"],
                 "fingerprint": revision["fingerprint"], "mode": dataset["mode"],
+                "root": str(self.settings.data_roots[dataset["root"]].resolve()),
                 "before": {k: str(v) for k, v in sorted(before.items())},
                 "after": {k: str(v) for k, v in sorted(after.items())},
             }

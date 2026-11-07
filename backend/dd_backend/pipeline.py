@@ -14,6 +14,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import stat
 import sys
 import traceback
 from pathlib import Path
@@ -125,11 +126,37 @@ def _file_digest(path: Path) -> tuple[int, str]:
     return path.stat().st_size, h.hexdigest()
 
 
-def _load_json(path: Path, name: str, side: str) -> dict:
+def _read_verified(path: Path, root: str, label: str) -> bytes:
+    """Open without following a final symlink, check the opened file really lives under root, read it once."""
     try:
-        with path.open("rb") as f:
-            doc = json.loads(f.read())
-    except (OSError, ValueError) as exc:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise StageFailure("INPUT_ESCAPES_ROOT", f"{label}: is a symlink; refused") from None
+        raise StageFailure("INPUT_UNREADABLE", f"{label}: cannot open ({type(exc).__name__})") from None
+    try:
+        real = os.readlink(f"/proc/self/fd/{fd}") if os.path.isdir("/proc/self/fd") else os.path.realpath(path)
+        if not real.startswith(root.rstrip("/") + "/"):
+            raise StageFailure("INPUT_ESCAPES_ROOT", f"{label}: resolves outside the dataset root; refused")
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise StageFailure("INPUT_UNREADABLE", f"{label}: not a regular file")
+        chunks = []
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    except OSError as exc:
+        raise StageFailure("INPUT_UNREADABLE", f"{label}: cannot read ({type(exc).__name__})") from None
+    finally:
+        os.close(fd)
+
+
+def _load_json(data: bytes, name: str, side: str) -> dict:
+    try:
+        doc = json.loads(data)
+    except ValueError as exc:
         raise StageFailure("INPUT_INVALID_JSON", f"{side}/{name}: invalid JSON ({type(exc).__name__})") from exc
     if not isinstance(doc, dict):
         raise StageFailure("INPUT_INVALID_JSON", f"{side}/{name}: JSON root must be an object")
@@ -157,14 +184,15 @@ def run(run_dir: Path, emit: Emitter) -> dict:
     if missing_before or missing_after:
         raise StageFailure("INPUT_MISSING_PAIR", f"Unpaired inputs: {len(missing_before)} without BEFORE, "
                            f"{len(missing_after)} without AFTER (e.g. {(missing_before + missing_after)[:3]})")
+    # Each input is read exactly once; the fingerprinted bytes are the bytes parsed later (no re-open).
     digest = hashlib.sha256()
+    raw: dict[tuple[str, str], bytes] = {}
     for side, files in (("BEFORE", before_files), ("AFTER", after_files)):
         for name in sorted(files):
+            data = _read_verified(Path(files[name]), inputs["root"], f"{side}/{name}")
+            raw[(side, name)] = data
             digest.update(f"{side}/{name}\0".encode())
-            try:
-                digest.update(hashlib.sha256(Path(files[name]).read_bytes()).digest())
-            except OSError as exc:
-                raise StageFailure("INPUT_UNREADABLE", f"{side}/{name}: cannot read ({type(exc).__name__})") from exc
+            digest.update(hashlib.sha256(data).digest())
     if digest.hexdigest() != inputs["fingerprint"]:
         raise StageFailure("DATASET_REVISION_MISMATCH",
                            "Dataset files changed since the registered revision; rescan the dataset to create a new revision")
@@ -179,8 +207,8 @@ def run(run_dir: Path, emit: Emitter) -> dict:
     normalized: dict[str, tuple[list[dict], list[dict]]] = {}
     step = max(1, len(pairs) // 20)
     for i, name in enumerate(pairs, 1):
-        b = _load_json(Path(before_files[name]), name, "BEFORE")
-        a = _load_json(Path(after_files[name]), name, "AFTER")
+        b = _load_json(raw.pop(("BEFORE", name)), name, "BEFORE")
+        a = _load_json(raw.pop(("AFTER", name)), name, "AFTER")
         if inputs["mode"] == "files":
             app_id = str((b.get("appData") or {}).get("application_id") or Path(before_files[name]).stem)
         else:
