@@ -1341,6 +1341,19 @@
       "title": "Created At",
       "type": "string"
      },
+     "declared_params": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "check: CHECK.params read statically (AST, not executed); builtin normalize: presets",
+      "title": "Declared Params"
+     },
      "filename": {
       "anyOf": [
        {

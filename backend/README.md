@@ -114,6 +114,10 @@ read-only · 404 `NOT_FOUND` (also for other owners' IDs — existence is not le
   that report. `POST /runs/{id}/check-runs` makes a new check run + report on the same data revision.
 - Report `completeness`: `COMPLETE` | `INCOMPLETE` (some check had an execution problem) |
   `NO_CHECKS_SELECTED` (technical run, not acceptance of the five checks).
+- Built-in normalize params: `{"config": "real"|"teaching", "excluded_paths": [...], "arrays": {path: {mode, keys, scalar_suffix}}}`;
+  `excluded_paths`/`arrays` replace the preset's lists (presets are visible in `declared_params` of the built-in
+  normalize script). The pinned core `NormalizationConfig` is built from them; the normalizer itself is unchanged.
+  Check scripts expose `declared_params` = `CHECK.params` read statically (AST), never by executing the file.
 - Check `execution_status`: `SUCCEEDED` (0..N rows) | `ERROR` | `TIMEOUT` | `INVALID_OUTPUT` |
   `IMPORT_ERROR` | `CONTRACT_ERROR` | `DUPLICATE_ID`. Business `RESULT` stays PASS/FAIL only.
 

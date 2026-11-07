@@ -8,6 +8,7 @@ CHECKING and FINALIZING are executed by the worker after this process succeeds.
 from __future__ import annotations
 
 import csv
+import dataclasses
 import errno
 import hashlib
 import importlib.util
@@ -62,6 +63,14 @@ def build_procedures(run_dir: Path, procs: dict[str, dict]) -> dict[str, Callabl
         if spec["source"] == "builtin":
             if slot == "normalize":
                 config = {"real": configs.REAL, "teaching": configs.TEACHING}[params.get("config", "real")]
+                changes = {}
+                if params.get("excluded_paths") is not None:
+                    changes["excluded_paths"] = frozenset(params["excluded_paths"])
+                if params.get("arrays") is not None:
+                    changes["arrays"] = {path: core.ArrayRule(r["mode"], tuple(r.get("keys", ())), r.get("scalar_suffix", ""))
+                                         for path, r in params["arrays"].items()}
+                if changes:
+                    config = dataclasses.replace(config, **changes)
                 out[slot] = lambda doc, app_id, source, _c=config: core.normalize(doc, app_id, source, _c)
             elif slot == "compare":
                 out[slot] = lambda b, a: core.compare(b, a)

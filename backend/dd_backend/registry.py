@@ -115,6 +115,75 @@ _NAME_RE = re.compile(r"^[\w .\-()\[\]]{1,120}$", re.UNICODE)
 _FILENAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,80}\.py$")
 
 
+NORMALIZE_PARAM_KEYS = {"config", "excluded_paths", "arrays"}
+ARRAY_MODES = ("fields", "index", "value")
+
+
+def preset_to_json(cfg) -> dict:
+    return {
+        "excluded_paths": sorted(cfg.excluded_paths),
+        "arrays": {path: {"mode": r.mode, "keys": list(r.keys), "scalar_suffix": r.scalar_suffix}
+                   for path, r in sorted(cfg.arrays.items())},
+        "buckets": {path: [list(b) for b in bounds] for path, bounds in sorted(cfg.buckets.items())},
+        "display_suffixes": dict(sorted(cfg.display_suffixes.items())),
+    }
+
+
+def normalize_presets() -> dict:
+    from decision_diff import configs
+    return {"real": preset_to_json(configs.REAL), "teaching": preset_to_json(configs.TEACHING)}
+
+
+def validate_normalize_params(params: dict) -> None:
+    unknown = set(params) - NORMALIZE_PARAM_KEYS
+    if unknown:
+        raise ApiError(422, "PARAMS_INVALID", "Unknown builtin normalize params", {"unknown": sorted(unknown),
+                       "allowed": sorted(NORMALIZE_PARAM_KEYS)})
+    if params.get("config") not in BUILTIN_CONFIG_NAMES:
+        raise ApiError(422, "PARAMS_INVALID", "builtin normalize params.config must be one of " + ", ".join(BUILTIN_CONFIG_NAMES))
+    ex = params.get("excluded_paths")
+    if ex is not None and not (isinstance(ex, list) and all(isinstance(x, str) and x for x in ex) and len(ex) <= 1000):
+        raise ApiError(422, "PARAMS_INVALID", "excluded_paths must be a list of non-empty strings")
+    arrays = params.get("arrays")
+    if arrays is not None:
+        if not isinstance(arrays, dict) or len(arrays) > 1000:
+            raise ApiError(422, "PARAMS_INVALID", "arrays must be an object {path: rule}")
+        for path, rule in arrays.items():
+            ok = (isinstance(rule, dict) and set(rule) <= {"mode", "keys", "scalar_suffix"} and rule.get("mode") in ARRAY_MODES
+                  and isinstance(rule.get("keys", []), list) and all(isinstance(k, str) for k in rule.get("keys", []))
+                  and isinstance(rule.get("scalar_suffix", ""), str))
+            if not ok or (rule["mode"] == "fields" and not rule.get("keys")):
+                raise ApiError(422, "PARAMS_INVALID", "Invalid array rule", {"path": path, "modes": list(ARRAY_MODES)})
+
+
+def declared_check_params(code: bytes):
+    """Static (AST, no execution) extraction of CHECK['params'] when it is a literal or a literal-bound name."""
+    import ast
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    names: dict[str, ast.AST] = {}
+    check = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            names[node.targets[0].id] = node.value
+            if node.targets[0].id == "CHECK" and isinstance(node.value, ast.Dict):
+                check = node.value
+    if check is None:
+        return None
+    for k, v in zip(check.keys, check.values):
+        if isinstance(k, ast.Constant) and k.value == "params":
+            if isinstance(v, ast.Name):
+                v = names.get(v.id)
+            try:
+                value = ast.literal_eval(v)
+            except (ValueError, TypeError, SyntaxError, RecursionError):
+                return None
+            return value if isinstance(value, dict) else None
+    return None
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -366,6 +435,13 @@ class Registry:
                 "filename": row["filename"], "builtin_ref": row["builtin_ref"], "shared": row["owner_id"] is None,
                 "params": loads(row["params_json"]), "revision": row["revision"], "code_sha256": row["code_sha256"],
                 "created_at": row["created_at"], "updated_at": row["updated_at"]}
+        if row["kind"] == "check":
+            view["declared_params"] = declared_check_params(self.script_code(row))
+        elif row["kind"] == "normalize" and row["source"] == "builtin":
+            view["declared_params"] = {"presets": normalize_presets(),
+                                       "overridable": sorted(NORMALIZE_PARAM_KEYS - {"config"})}
+        else:
+            view["declared_params"] = None
         if with_code:
             view["code"] = self.script_code(row).decode("utf-8")
         return view
@@ -404,10 +480,7 @@ class Registry:
             if params is not None and not isinstance(params, dict):
                 raise ApiError(422, "VALIDATION_ERROR", "params must be an object")
             if slot == "normalize" and row["source"] == "builtin":
-                eff = {**loads(row["params_json"]), **(params or {})}
-                if eff.get("config") not in BUILTIN_CONFIG_NAMES:
-                    raise ApiError(422, "PARAMS_INVALID", "builtin normalize params.config must be one of "
-                                   + ", ".join(BUILTIN_CONFIG_NAMES))
+                validate_normalize_params({**loads(row["params_json"]), **(params or {})})
             resolved_slots[slot] = {"script_id": sid, "params": params}
         if checks is None:
             checks = [{"script_id": s["script_id"]} for s in self.list_scripts(owner_id, "check") if s["shared"]]

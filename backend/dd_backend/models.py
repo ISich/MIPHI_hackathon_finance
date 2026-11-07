@@ -116,6 +116,8 @@ class Script(BaseModel):
     code_sha256: str
     created_at: str
     updated_at: str
+    declared_params: Optional[dict[str, Any]] = Field(
+        default=None, description="check: CHECK.params read statically (AST, not executed); builtin normalize: presets")
     code: Optional[str] = None
 
 
