@@ -85,6 +85,33 @@ def readiness(settings: Settings, db: Database) -> dict[str, Any]:
                     "embedded": settings.embedded_worker}
         return {"live_workers": len(alive), "heartbeat_age_seconds": min(alive), "embedded": settings.embedded_worker}
 
+    def executions():
+        """Fail-closed jobs: RUNNING but terminal resource or no live worker (cleanup not verified)."""
+        import os
+        import socket
+        host = socket.gethostname()
+        blocked = []
+        for job in db.all("SELECT kind, ref_id FROM jobs WHERE status = 'RUNNING'"):
+            table, key = ("runs", "run_id") if job["kind"] == "DATA_RUN" else ("check_runs", "check_run_id")
+            res = db.one(f"SELECT status, worker_id FROM {table} WHERE {key} = ?", (job["ref_id"],))
+            w = db.one("SELECT pid, hostname, heartbeat_at FROM workers WHERE worker_id = ?", (res["worker_id"],)) if res else None
+            alive = False
+            if w is not None:
+                if w["hostname"] == host:
+                    try:
+                        os.kill(w["pid"], 0)
+                        alive = True
+                    except ProcessLookupError:
+                        alive = False
+                    except PermissionError:
+                        alive = True
+                else:
+                    age = (datetime.now(timezone.utc) - datetime.fromisoformat(w["heartbeat_at"].replace("Z", "+00:00"))).total_seconds()
+                    alive = age <= settings.worker_lease_seconds
+            if res is None or res["status"] in ("COMPLETED", "FAILED") or not alive:
+                blocked.append(job["ref_id"])
+        return {"_ok": not blocked, "blocked_jobs": blocked}
+
     checks_list = [
         _check("database", database),
         _check("core_package", core),
@@ -92,6 +119,7 @@ def readiness(settings: Settings, db: Database) -> dict[str, Any]:
         _check("checks_dir", checks),
         _check("data_roots", roots),
         _check("worker", worker),
+        _check("executions", executions),
     ]
     return {
         "ready": all(c["ok"] for c in checks_list),

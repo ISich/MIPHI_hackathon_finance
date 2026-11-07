@@ -13,7 +13,8 @@ No Redis/Celery/containers.
 
 - Python 3.11+ with `venv`; `git`; Git access to the private repo `ISich/MIPHI_hackathon_finance`
   (your normal Git credential helper is used by `pip` and `fetch_core.sh`).
-- Linux/macOS (worker uses POSIX process groups and rlimits; `PR_SET_PDEATHSIG` on Linux only).
+- **Linux** for the worker (containment supervisor uses `PR_SET_CHILD_SUBREAPER` and `/proc`; the worker refuses
+  to start elsewhere). The API process alone is portable.
 
 ## Install (clean checkout)
 
@@ -108,6 +109,8 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 | `DD_MAX_LOG_BYTES` | `1 MiB` | captured stdout/stderr per child |
 | `DD_MAX_MEMORY_MB` | `6144` | RLIMIT_AS per child |
 | `DD_MAX_INPUT_FILE_BYTES` | `64 MiB` | per input JSON file, enforced at registration (bounded hashing) and in the pipeline |
+| `DD_MAX_CHECK_RESULT_BYTES` | `16 MiB` | per check result file accepted by the worker (larger → INVALID_OUTPUT, never loaded) |
+| `DD_MAX_REPORT_BYTES` | `64 MiB` | aggregate budget of check results loaded for one report |
 | `DD_WORKER_LEASE_SECONDS` | `15` | heartbeat lease for worker liveness / interrupted-job detection |
 | `DD_COOKIE_SECURE` | `0` | set `1` behind TLS (local HTTP mode otherwise) |
 | `DD_ALLOWED_HOSTS` | `127.0.0.1,localhost,::1` | accepted `Host` names (anti DNS-rebinding); other hosts → 400. trusted-local accepts loopback names only |
@@ -158,7 +161,14 @@ read-only · 404 `NOT_FOUND` (also for other owners' IDs — existence is not le
   `Content-Length`.
 - Worker: a job is failed as interrupted only when its worker process is gone (same host: pid + start time);
   every write of a worker is fenced by job ownership. The whole child process group is killed after each child.
-  Every execution carries a random `RUNNER_EXECUTION_ID` in its environment (persisted in `jobs.exec_mark`
+  Every execution runs under `dd_backend.supervisor`, a child subreaper: all its descendants (also `setsid`
+  ones or ones with a scrubbed environment) are re-parented to it; on finish, timeout, shutdown or worker death
+  (PDEATHSIG) it kills and reaps the whole tree and writes a containment marker. Without the marker the job is
+  **not released** (fail closed, `/ready` → `executions` not ok, event `EXECUTION_UNCONTAINED`) until an operator
+  verifies the host and runs `python -m dd_backend release-job --ref <id> --confirm-no-processes`.
+  A resource that already reached COMPLETED/FAILED is never rewritten by recovery; terminal state and job DONE
+  are committed in one transaction.
+  Every execution also carries a random `RUNNER_EXECUTION_ID` in its environment (persisted in `jobs.exec_mark`
   before start); after a worker crash, recovery kills all local processes with that mark before releasing the
   job. A child that exits non-zero after writing a result is an execution ERROR (result ignored).
   Dataset registration hashes regular files only, via non-blocking descriptors with bounded reads.

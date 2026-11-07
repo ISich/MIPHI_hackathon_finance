@@ -215,6 +215,8 @@ class Database:
             if "exec_mark" not in jcols:  # migration: identity of the running execution's processes
                 con.execute("ALTER TABLE jobs ADD COLUMN exec_mark TEXT")
                 con.execute("ALTER TABLE jobs ADD COLUMN exec_pgid INTEGER")
+            if "exec_start" not in jcols:
+                con.execute("ALTER TABLE jobs ADD COLUMN exec_start TEXT")
 
     def connect(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.path, timeout=30, isolation_level=None)

@@ -62,6 +62,45 @@ def _register(args) -> int:
     return 0
 
 
+def _release(args) -> int:
+    """Operator escape hatch for a fail-closed job (EXECUTION_UNCONTAINED)."""
+    from .db import Database
+    from .runs import append_event
+    from .worker import Worker, kill_marked
+    if not args.confirm_no_processes:
+        print("refusing: verify on the host that no process of this execution is alive, then pass "
+              "--confirm-no-processes", file=sys.stderr)
+        return 2
+    settings = load_settings()
+    db = Database(settings.db_path)
+    db.init()
+    job = db.one("SELECT * FROM jobs WHERE ref_id = ? AND status = 'RUNNING'", (args.ref,))
+    if job is None:
+        print("no RUNNING job with this ref", file=sys.stderr)
+        return 1
+    if job["exec_mark"]:
+        left = kill_marked(job["exec_mark"], None)
+        if left:
+            print(f"refusing: {left} processes with this execution mark are still alive", file=sys.stderr)
+            return 1
+    w = Worker(settings, db)
+    msg = "Released by operator after manual verification that no execution process is alive"
+    with db.tx() as con:
+        table, key = ("runs", "run_id") if job["kind"] == "DATA_RUN" else ("check_runs", "check_run_id")
+        status = con.execute(f"SELECT status FROM {table} WHERE {key} = ?", (args.ref,)).fetchone()[0]
+        if status not in ("COMPLETED", "FAILED"):
+            if job["kind"] == "DATA_RUN":
+                w._fail_run_tx(con, args.ref, "EXECUTION_UNCONTAINED", msg)
+            else:
+                w._fail_check_run_tx(con, args.ref, "EXECUTION_UNCONTAINED", msg)
+        con.execute("UPDATE jobs SET status = 'DONE' WHERE job_seq = ?", (job["job_seq"],))
+        run_id = args.ref if job["kind"] == "DATA_RUN" else con.execute(
+            "SELECT run_id FROM check_runs WHERE check_run_id = ?", (args.ref,)).fetchone()[0]
+        append_event(con, run_id, "WARN", msg)
+    print(f"released {args.ref}")
+    return 0
+
+
 def _openapi(args) -> int:
     from .app import create_app
     spec = create_app().openapi()
@@ -91,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--before", required=True)
     r.add_argument("--after", required=True)
     r.set_defaults(fn=_register)
+    rel = sub.add_parser("release-job", help="release a fail-closed job after manually verifying no process survives")
+    rel.add_argument("--ref", required=True, help="run_id or check_run_id")
+    rel.add_argument("--confirm-no-processes", action="store_true")
+    rel.set_defaults(fn=_release)
     o = sub.add_parser("export-openapi")
     o.add_argument("--out")
     o.set_defaults(fn=_openapi)

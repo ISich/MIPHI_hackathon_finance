@@ -114,12 +114,37 @@ def kill_marked(mark: str, pgid: int | None = None, wait: float = 3.0) -> int:
         time.sleep(0.05)
 
 
+REGISTRATION_RESULT_LIMIT = 1024 * 1024
+
+
+def _read_protocol(path: Path, limit: int) -> tuple[dict | None, bool]:
+    """Bounded read of a child's JSON protocol file: never loads more than ``limit`` bytes."""
+    try:
+        with path.open("rb") as f:
+            data = f.read(limit + 1)
+    except FileNotFoundError:
+        return None, False
+    if len(data) > limit:
+        return None, True
+    try:
+        value = json.loads(data)
+    except ValueError:
+        return None, False
+    return (value if isinstance(value, dict) else None), False
+
+
+class UncontainedExecution(Exception):
+    """The execution's process tree could not be verified as terminated: fail closed (job stays RUNNING)."""
+
+
 class LeaseLost(Exception):
     """This worker no longer owns the job (another worker failed/recovered it): stop, publish nothing."""
 
 
 class Worker:
     def __init__(self, settings: Settings, db: Database) -> None:
+        if not sys.platform.startswith("linux"):
+            raise RuntimeError("The worker requires Linux (subreaper containment, /proc); refusing to execute")
         self.settings = settings
         self.db = db
         self.worker_id = new_id("wrk")
@@ -238,13 +263,18 @@ class Worker:
                                       (job["ref_id"],)).fetchone()
                 if row is None or not dead(row["worker_id"], row["heartbeat_at"]):
                     continue
-                if job["exec_mark"]:
-                    # Clean up the crashed execution's processes BEFORE the job is released.
-                    # By mark only: a recorded pgid may already be reused by an unrelated process.
-                    left = kill_marked(job["exec_mark"], None)
-                    if left:
-                        log.error("job %s: %d processes of the interrupted execution survive", job["ref_id"], left)
-                        continue  # keep it RUNNING (blocks new jobs) rather than overlap; retried next recover
+                verdict = self.containment(dict(job))
+                if verdict is None:
+                    continue  # its supervisor is still alive (cleaning up): decide next round
+                if verdict is False:
+                    self._note_uncontained(con, dict(job))
+                    continue  # fail closed: job stays RUNNING, nothing else may start
+                table, key = self._job_table(job["kind"])
+                status = con.execute(f"SELECT status FROM {table} WHERE {key} = ?", (job["ref_id"],)).fetchone()
+                if status is not None and status[0] in ("COMPLETED", "FAILED"):
+                    # Terminal already (crash after the terminal commit): never rewrite it.
+                    con.execute("UPDATE jobs SET status = 'DONE' WHERE job_seq = ?", (job["job_seq"],))
+                    continue
                 msg = "Worker stopped while the job was running; job marked FAILED (not resumed automatically)"
                 if job["kind"] == "DATA_RUN":
                     self._fail_run_tx(con, job["ref_id"], "RUN_INTERRUPTED", msg)
@@ -259,6 +289,37 @@ class Worker:
                                         (w["worker_id"], w["worker_id"])).fetchone():
                     con.execute("DELETE FROM workers WHERE worker_id = ?", (w["worker_id"],))
         return failed
+
+    def containment(self, job: dict) -> bool | None:
+        """True: the job's last execution is verifiably gone; None: its supervisor is still alive;
+        False: cannot be verified (fail closed)."""
+        mark = job.get("exec_mark")
+        if not mark:
+            return True  # never started anything
+        if (self.settings.home / "executions" / f"{mark}.contained").exists():
+            kill_marked(mark, None, wait=0.5)  # belt and braces
+            return True
+        pid, start = job.get("exec_pgid"), job.get("exec_start")
+        if pid:
+            current = _proc_start(pid)
+            if current is not None and (start in (None, "unknown") or current == start):
+                return None
+            return False  # supervisor died without verifying containment
+        # supervisor never recorded: it either never started or is identified only by the mark
+        return kill_marked(mark, None) == 0
+
+    def _note_uncontained(self, con, job: dict) -> None:
+        msg = ("EXECUTION_UNCONTAINED: processes of the interrupted execution could not be verified as gone; "
+               "queue blocked. Check the host, then run: python -m dd_backend release-job --ref "
+               f"{job['ref_id']} --confirm-no-processes")
+        log.error(msg)
+        if job["kind"] == "DATA_RUN":
+            run_id = job["ref_id"]
+        else:
+            run_id = con.execute("SELECT run_id FROM check_runs WHERE check_run_id=?", (job["ref_id"],)).fetchone()[0]
+        if not con.execute("SELECT 1 FROM events WHERE run_id=? AND message LIKE 'EXECUTION_UNCONTAINED%'",
+                           (run_id,)).fetchone():
+            append_event(con, run_id, "ERROR", msg)
 
     # --------------------------------------------------------------- claim
     def claim(self) -> dict | None:
@@ -293,6 +354,7 @@ class Worker:
                     self._stop.wait(POLL_SECONDS)
                     continue
                 self._current = {"kind": job["kind"], "ref": job["ref_id"], "job_seq": job["job_seq"]}
+                blocked = False
                 try:
                     if job["kind"] == "DATA_RUN":
                         self.execute_data_run(job["ref_id"])
@@ -301,13 +363,19 @@ class Worker:
                 except LeaseLost:
                     log.warning("job %s: ownership lost; nothing published by this worker", job["ref_id"])
                     self._kill_child()
+                except UncontainedExecution as exc:
+                    blocked = True
+                    log.error("job %s: %s", job["ref_id"], exc)
+                    self._fail_job(job, "EXECUTION_UNCONTAINED",
+                                   "Execution processes could not be verified as terminated; queue blocked until an "
+                                   "operator runs release-job", release=False)
                 except Exception:
                     # Never leave a job RUNNING forever: fail it explicitly, details only in the server log.
                     log.exception("job %s %s failed inside the worker", job["kind"], job["ref_id"])
                     self._fail_job(job, "WORKER_ERROR", "Internal worker error; see server log for this run id")
                 finally:
                     self._current = {}
-                    if not self._stop.is_set():
+                    if not self._stop.is_set() and not blocked:
                         with self.db.tx() as con:
                             con.execute("UPDATE jobs SET status = 'DONE' WHERE job_seq = ?", (job["job_seq"],))
             except Exception:
@@ -347,18 +415,26 @@ class Worker:
         return apply
 
     def _kill_child(self) -> None:
-        """SIGKILL the child's whole process group (start_new_session => pgid == child pid).
-
-        Done even if the leader already exited: descendants left in the group are ours too.
-        Processes that deliberately leave the group (setsid) are out of reach: not a sandbox.
-        """
+        """Ask the execution's containment supervisor to stop (SIGTERM): it kills and reaps the whole
+        execution tree, verifies it and writes the containment marker. Escalation to SIGKILL of the
+        group happens in spawn() if the supervisor does not finish in time (then: uncontained)."""
         with self._lock:
             child = self._child
-        if child is not None:
+        if child is not None and child.poll() is None:
+            try:
+                os.kill(child.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def _reap_supervisor(self, child: subprocess.Popen) -> int:
+        try:
+            return child.wait(timeout=20)
+        except subprocess.TimeoutExpired:
             try:
                 os.killpg(child.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
+            return child.wait()
 
     def spawn(self, argv: list[str], *, workdir: Path, timeout: float, log_path: Path,
               on_event: Callable[[dict], None] | None = None) -> tuple[int | None, bool]:
@@ -370,9 +446,12 @@ class Worker:
             with self.db.tx() as con:
                 con.execute("UPDATE jobs SET exec_mark=?, exec_pgid=NULL WHERE job_seq=?", (mark, job_seq))
         ev_r, ev_w = os.pipe()
-        cmd = [sys.executable, "-I", "-m", *argv]
+        inner = [sys.executable, "-I", "-m", *argv]
         if on_event is not None:
-            cmd.append(str(ev_w))
+            inner.append(str(ev_w))
+        marker = self.settings.home / "executions" / f"{mark}.contained"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        cmd = [sys.executable, "-I", "-m", "dd_backend.supervisor", str(os.getpid()), str(marker), "--", *inner]
         child = subprocess.Popen(
             cmd, cwd=workdir, env={**self._child_env(workdir), EXEC_MARK_VAR: mark}, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(ev_w,) if on_event else (),
@@ -383,7 +462,8 @@ class Worker:
             self._child = child
         if job_seq is not None:
             with self.db.tx() as con:
-                con.execute("UPDATE jobs SET exec_pgid=? WHERE job_seq=?", (child.pid, job_seq))
+                con.execute("UPDATE jobs SET exec_pgid=?, exec_start=? WHERE job_seq=?",
+                            (child.pid, _proc_start(child.pid), job_seq))
         log_budget = self.settings.max_log_bytes
         truncated = False
         deadline = time.monotonic() + timeout
@@ -394,7 +474,6 @@ class Worker:
         sel.register(ev_file, selectors.EVENT_READ, "ev")
         buf = b""
         open_streams = 2
-        leader_done = False
         try:
             with log_path.open("ab") as logf:
                 while open_streams:
@@ -406,10 +485,6 @@ class Worker:
                     if self._stop.is_set():
                         self._kill_child()
                         break
-                    if child.poll() is not None and not leader_done:
-                        # Leader finished: kill leftovers so they cannot hold our pipes or outlive the job.
-                        leader_done = True
-                        self._kill_child()
                     for key, _ in sel.select(timeout=min(remaining, 0.5)):
                         chunk = os.read(key.fileobj.fileno(), 65536)
                         if not chunk:
@@ -437,31 +512,31 @@ class Worker:
                                 if on_event is not None and isinstance(payload, dict):
                                     on_event(payload)
         except BaseException:
-            self._kill_child()  # e.g. LeaseLost from on_event: never leave the child running
+            self._kill_child()  # e.g. LeaseLost from on_event: never leave the execution running
             sel.close()
             ev_file.close()
             child.stdout.close()
-            child.wait()
+            self._reap_supervisor(child)
             with self._lock:
                 self._child = None
             raise
         sel.close()
         ev_file.close()
         child.stdout.close()
-        try:
-            rc = child.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self._kill_child()
-            rc = child.wait()
-        self._kill_child()  # always: no descendant of this execution survives it
-        kill_marked(mark, None, wait=1.0)  # also descendants that left the process group
+        rc = self._reap_supervisor(child)
         with self._lock:
             self._child = None
+        if not marker.exists():
+            left = kill_marked(mark, None, wait=1.0)
+            raise UncontainedExecution(f"containment of execution {mark[:8]} not verified "
+                                       f"(supervisor exit {rc}, {left} marked processes left)")
         return (None if timed_out else rc), timed_out
 
     # ------------------------------------------------------------ data run
-    def _fail_run_tx(self, con, run_id: str, code: str, message: str) -> None:
+    def _fail_run_tx(self, con, run_id: str, code: str, message: str, release: bool = True) -> None:
         ts = now()
+        if release:  # terminal state and job DONE in the same transaction (no crash window between them)
+            con.execute("UPDATE jobs SET status='DONE' WHERE ref_id=?", (run_id,))
         con.execute("UPDATE runs SET status='FAILED', error_code=?, error_message=?, finished_at=? WHERE run_id=?",
                     (code, message[:2000], ts, run_id))
         r = con.execute("SELECT stage, initial_check_run_id, initial_report_id FROM runs WHERE run_id=?", (run_id,)).fetchone()
@@ -470,19 +545,21 @@ class Worker:
         con.execute("UPDATE reports SET status='FAILED' WHERE report_id=? AND status='PENDING'", (r[2],))
         append_event(con, run_id, "ERROR", f"{code}: {message}", stage=r[0])
 
-    def _fail_job(self, job: dict, code: str, message: str) -> None:
+    def _fail_job(self, job: dict, code: str, message: str, release: bool = True) -> None:
         with self._job_tx() as con:
             if job["kind"] == "DATA_RUN":
                 row = con.execute("SELECT status FROM runs WHERE run_id=?", (job["ref_id"],)).fetchone()
                 if row and row[0] not in ("COMPLETED", "FAILED"):
-                    self._fail_run_tx(con, job["ref_id"], code, message)
+                    self._fail_run_tx(con, job["ref_id"], code, message, release=release)
             else:
                 row = con.execute("SELECT status FROM check_runs WHERE check_run_id=?", (job["ref_id"],)).fetchone()
                 if row and row[0] not in ("COMPLETED", "FAILED"):
-                    self._fail_check_run_tx(con, job["ref_id"], code, message)
+                    self._fail_check_run_tx(con, job["ref_id"], code, message, release=release)
 
-    def _fail_check_run_tx(self, con, cr_id: str, code: str, message: str) -> None:
+    def _fail_check_run_tx(self, con, cr_id: str, code: str, message: str, release: bool = True) -> None:
         ts = now()
+        if release:
+            con.execute("UPDATE jobs SET status='DONE' WHERE ref_id=?", (cr_id,))
         c = con.execute("SELECT run_id, report_id FROM check_runs WHERE check_run_id=?", (cr_id,)).fetchone()
         con.execute("UPDATE check_runs SET status='FAILED', error_code=?, error_message=?, finished_at=? WHERE check_run_id=?",
                     (code, message[:2000], ts, cr_id))
@@ -534,7 +611,7 @@ class Worker:
             return
         if state["error"] is not None or rc != 0 or state["result"] is None:
             err = state["error"] or {}
-            code = err.get("code") or ("KILLED_BY_LIMIT" if rc is not None and rc < 0 else "PIPELINE_CRASHED")
+            code = err.get("code") or ("KILLED_BY_LIMIT" if rc is not None and (rc < 0 or rc >= 128) else "PIPELINE_CRASHED")
             message = err.get("message") or f"pipeline exited with code {rc}; see owner log"
             with self._job_tx() as con:
                 self._fail_run_tx(con, run_id, code, self._sanitize(message))
@@ -562,6 +639,7 @@ class Worker:
         self._set_stage(run_id, "FINALIZING", None, "Publishing run and initial report")
         with self._job_tx() as con:
             con.execute("UPDATE runs SET status='COMPLETED', finished_at=? WHERE run_id=?", (now(), run_id))
+            con.execute("UPDATE jobs SET status='DONE' WHERE ref_id=?", (run_id,))  # atomically with COMPLETED
             append_event(con, run_id, "INFO", "Run COMPLETED", stage="FINALIZING")
 
     # ------------------------------------------------------------- checks
@@ -601,6 +679,7 @@ class Worker:
         cdir = rdir / "checks" / cr_id
         cdir.mkdir(parents=True, exist_ok=True)
         executions: list[dict] = []
+        report_bytes = 0  # aggregate budget of accepted check results held in this process
         seen_ids: dict[str, str] = {}
         for s in selected:
             if self._stop.is_set():
@@ -618,7 +697,7 @@ class Worker:
             if timed_out:
                 ex.update(execution_status="TIMEOUT", diagnostics=[{"error_type": "Timeout", "message": "check import timed out"}])
                 continue
-            reg = json.loads(reg_out.read_text("utf-8")) if reg_out.exists() and rc == 0 else None
+            reg, too_big = _read_protocol(reg_out, REGISTRATION_RESULT_LIMIT) if rc == 0 else (None, False)
             if reg is None:
                 ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildFailed",
                                                                   "message": f"registration process exit code {rc}; result ignored"}])
@@ -646,11 +725,23 @@ class Worker:
                 ex.update(execution_status="TIMEOUT", diagnostics=[{
                     "error_type": "Timeout", "message": f"check exceeded {settings.check_timeout_seconds}s and was killed"}])
                 continue
-            res = json.loads(run_out.read_text("utf-8")) if run_out.exists() and rc == 0 else None
+            size = run_out.stat().st_size if run_out.exists() else 0
+            if rc == 0 and size > settings.max_check_result_bytes:
+                ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
+                    "error_type": "ResultTooLarge",
+                    "message": f"check result {size} bytes exceeds DD_MAX_CHECK_RESULT_BYTES; not loaded"}])
+                continue
+            if rc == 0 and report_bytes + size > settings.max_report_bytes:
+                ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
+                    "error_type": "ReportBudgetExceeded",
+                    "message": f"report budget DD_MAX_REPORT_BYTES exhausted ({report_bytes}+{size} bytes); not loaded"}])
+                continue
+            res, _ = _read_protocol(run_out, settings.max_check_result_bytes) if rc == 0 else (None, False)
             if res is None:
                 ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildFailed",
                                                                   "message": f"check process exit code {rc}; result ignored"}])
                 continue
+            report_bytes += size
             ex.update(execution_status=res["status"], rows=res["rows"],
                       diagnostics=[{**d, "message": self._sanitize(str(d.get("message", ""))),
                                     "file": s["slot"] + ".py"} for d in res["diagnostics"]])
@@ -701,6 +792,8 @@ class Worker:
             con.execute("UPDATE reports SET status='PUBLISHED', completeness=?, rel_path=?, sha256=?, published_at=? "
                         "WHERE report_id=?", (completeness, rel, sha, ts, report_id))
             con.execute("UPDATE check_runs SET status='COMPLETED', finished_at=? WHERE check_run_id=?", (ts, cr_id))
+            if not initial:
+                con.execute("UPDATE jobs SET status='DONE' WHERE ref_id=?", (cr_id,))  # atomically with COMPLETED
             failed = sum(1 for e in executions if e["execution_status"] != "SUCCEEDED")  # noqa
             business_fail = sum(1 for e in executions for r in e["rows"] if r.get("RESULT") == "FAIL")
             append_event(con, run_id, "WARN" if failed else "INFO",

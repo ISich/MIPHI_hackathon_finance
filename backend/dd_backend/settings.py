@@ -91,6 +91,8 @@ class Settings:
     bind_host: str
     expected_core_commit: str = field(default="")
     max_input_file_bytes: int = field(default=64 * 1024 * 1024)
+    max_check_result_bytes: int = field(default=16 * 1024 * 1024)
+    max_report_bytes: int = field(default=64 * 1024 * 1024)
     allowed_hosts: frozenset = field(default=frozenset())
     allowed_origins: frozenset = field(default=frozenset())
 
@@ -134,6 +136,8 @@ def load_settings() -> Settings:
         allowed_hosts=allowed_hosts,
         allowed_origins=allowed_origins,
         max_input_file_bytes=_int("DD_MAX_INPUT_FILE_BYTES", 64 * 1024 * 1024),
+        max_check_result_bytes=_int("DD_MAX_CHECK_RESULT_BYTES", 16 * 1024 * 1024),
+        max_report_bytes=_int("DD_MAX_REPORT_BYTES", 64 * 1024 * 1024),
         home=home.resolve(),
         data_roots=_roots(roots_raw),
         checks_dir=Path(os.environ.get("DD_CHECKS_DIR") or core / "checks").expanduser(),

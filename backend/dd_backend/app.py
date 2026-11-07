@@ -79,15 +79,30 @@ class BodyLimitMiddleware:
 
 
 def _signing_key(path) -> bytes:
-    """Server-generated HMAC key for D4 pivot group locators (never from a client or env)."""
+    """Server-generated HMAC key for D4 pivot group locators (never from a client or env).
+
+    Published atomically: written fully to a private temp file, then hard-linked into place, so a
+    concurrent starter either creates it or reads a complete key; a short key is refused.
+    """
     import os
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        return path.read_bytes()
-    with os.fdopen(fd, "wb") as f:
-        f.write(secrets.token_bytes(32))
-    return path.read_bytes()
+    import tempfile
+    if not path.exists():
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".key-")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(secrets.token_bytes(32))
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                os.link(tmp, path)
+            except FileExistsError:
+                pass  # another starter won; use its complete key
+        finally:
+            os.unlink(tmp)
+    key = path.read_bytes()
+    if len(key) != 32:
+        raise RuntimeError(f"pivot signing key at {path.name} is corrupt ({len(key)} bytes); remove it and restart")
+    return key
 
 
 def create_app() -> FastAPI:
