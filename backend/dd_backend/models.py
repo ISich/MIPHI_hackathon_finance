@@ -69,8 +69,16 @@ class CheckRunCreate(Strict):
 
 
 class PivotDrillDown(Strict):
-    group: dict[str, Any] = Field(description="Pivot dimensions incl. SOURCE (D4 DuckDBMart.pivot_app_ids)")
-    limit: int = Field(default=200, ge=1, le=10000)
+    group: dict[str, Any] = Field(description="pivot_facts dimensions incl. SOURCE (D4 ReportService.group_members)")
+    limit: int = Field(default=50, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+
+
+class PivotQuery(Strict):
+    dimensions: list[str] = Field(description="BaseFacts dimensions to group by (D4 BASE_DIMS whitelist)")
+    filters: dict[str, Any] = Field(default_factory=dict, description="dimension -> value | [values] | null")
+    limit: int = Field(default=100, description="1..500 (validated by D4)")
+    offset: int = Field(default=0)
 
 
 # ----------------------------------------------------------------- responses

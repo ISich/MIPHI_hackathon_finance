@@ -1,6 +1,6 @@
 # Runtime dependencies of the D2 backend. Exact versions: requirements.lock.
 # D1/D4 core pinned by commit (private repo: uses your configured Git auth).
-decision-diff-core @ git+https://github.com/ISich/MIPHI_hackathon_finance.git@496d8cdabfe215ae1c6a740d964df9189382196b
+decision-diff-core @ git+https://github.com/ISich/MIPHI_hackathon_finance.git@421da26caf030ce230778ffbd07ee1f72bf71217
 fastapi>=0.115
 uvicorn>=0.30
 pydantic>=2.7

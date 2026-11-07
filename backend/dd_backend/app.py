@@ -78,12 +78,25 @@ class BodyLimitMiddleware:
         await send({"type": "http.response.body", "body": payload})
 
 
+def _signing_key(path) -> bytes:
+    """Server-generated HMAC key for D4 pivot group locators (never from a client or env)."""
+    import os
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return path.read_bytes()
+    with os.fdopen(fd, "wb") as f:
+        f.write(secrets.token_bytes(32))
+    return path.read_bytes()
+
+
 def create_app() -> FastAPI:
     settings = load_settings()
     db = Database(settings.db_path)
     db.init()
     settings.runs_dir.mkdir(parents=True, exist_ok=True)
     settings.scripts_dir.mkdir(parents=True, exist_ok=True)
+    signing_key = _signing_key(settings.signing_key_path)
 
     from .registry import Registry
     registry = Registry(settings, db)
@@ -118,6 +131,7 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.db = db
     app.state.registry = registry
+    app.state.signing_key = signing_key
     from .runs import RunService
     app.state.runs = RunService(settings, db, registry)
     errors.install(app)

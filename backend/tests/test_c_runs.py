@@ -64,7 +64,8 @@ def test_real_fixture_run_end_to_end(client, env):
     drill = client.post(f"/api/runs/{run['run_id']}/pivot-facts/applications",
                         json={"group": {"SOURCE": "AFTER", "PATH": "decisionResult.decision"}}).json()
     assert drill["items"] == ["I32554354"]
-    assert client.post(f"/api/runs/{run['run_id']}/pivot", json={}).json()["code"] == "ANALYTICS_UNAVAILABLE"
+    pivot = client.post(f"/api/runs/{run['run_id']}/pivot", json={"dimensions": ["DECISION_CHANGED"]}).json()
+    assert [(str(i["dimensions"]["DECISION_CHANGED"]), i["cnt"]) for i in pivot["items"]] == [("1", 1)]
 
 
 def test_summary_before_completion_is_not_ready(no_worker_client):

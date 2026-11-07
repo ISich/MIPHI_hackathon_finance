@@ -4,7 +4,7 @@ anyio==4.16.0
 attrs==26.1.0
 certifi==2026.10.23
 click==8.5.1
-decision-diff-core @ git+https://github.com/ISich/MIPHI_hackathon_finance.git@496d8cdabfe215ae1c6a740d964df9189382196b
+decision-diff-core @ git+https://github.com/ISich/MIPHI_hackathon_finance.git@421da26caf030ce230778ffbd07ee1f72bf71217
 duckdb==1.5.6
 fastapi==0.162.0
 h11==0.16.0

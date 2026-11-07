@@ -98,6 +98,10 @@ class Settings:
         return self.home / "backend.sqlite3"
 
     @property
+    def signing_key_path(self) -> Path:
+        return self.home / "pivot-locator.key"
+
+    @property
     def runs_dir(self) -> Path:
         return self.home / "runs"
 

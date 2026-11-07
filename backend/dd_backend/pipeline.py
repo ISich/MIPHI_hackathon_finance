@@ -306,8 +306,27 @@ def run(run_dir: Path, emit: Emitter) -> dict:
         table_counts = build_database(out_dir, out_dir / "mart.duckdb")
     except Exception as exc:
         raise StageFailure("STORAGE_ERROR", f"{type(exc).__name__}: {exc}") from exc
+    # D4 (core): fixed-grain BaseFacts/BaseMembership, written once by this run's single writer.
+    import duckdb
+    from decision_diff.base_facts import materialize_base_facts
+    from decision_diff.report_service import ReportService
+    con = duckdb.connect(str(out_dir / "mart.duckdb"))
+    try:
+        table_counts.update(materialize_base_facts(con))
+    except Exception as exc:
+        raise StageFailure("BASE_FACTS_INVALID", f"{type(exc).__name__}: {exc}") from exc
+    finally:
+        con.close()
+    with ReportService(out_dir / "mart.duckdb") as reports:
+        validation = reports.validate_memberships(sample_limit=500)
+    if not validation["ok"]:
+        raise StageFailure("BASE_FACTS_INVALID", f"pivot membership mismatches: {validation['mismatches'][:3]}")
+    emit.send(type="event", level="INFO",
+              message=f"base facts {table_counts['base_facts']}, memberships {table_counts['base_membership']}; "
+                      f"membership check ok on {validation['checked']} groups")
     summary = {
         **agg["summary"],
+        "membership_validation": {"ok": validation["ok"], "checked": validation["checked"]},
         "pairs": len(pairs),
         "rows": {"normalized_union": counts["normalized_union"], "comparison": counts["comparison"],
                  "segments": counts["segments"], "pivot_facts": counts["pivot_facts"]},

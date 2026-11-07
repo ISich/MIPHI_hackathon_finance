@@ -841,15 +841,21 @@
     "properties": {
      "group": {
       "additionalProperties": true,
-      "description": "Pivot dimensions incl. SOURCE (D4 DuckDBMart.pivot_app_ids)",
+      "description": "pivot_facts dimensions incl. SOURCE (D4 ReportService.group_members)",
       "title": "Group",
       "type": "object"
      },
      "limit": {
-      "default": 200,
-      "maximum": 10000.0,
+      "default": 50,
+      "maximum": 500.0,
       "minimum": 1.0,
       "title": "Limit",
+      "type": "integer"
+     },
+     "offset": {
+      "default": 0,
+      "minimum": 0.0,
+      "title": "Offset",
       "type": "integer"
      }
     },
@@ -857,6 +863,41 @@
      "group"
     ],
     "title": "PivotDrillDown",
+    "type": "object"
+   },
+   "PivotQuery": {
+    "additionalProperties": false,
+    "properties": {
+     "dimensions": {
+      "description": "BaseFacts dimensions to group by (D4 BASE_DIMS whitelist)",
+      "items": {
+       "type": "string"
+      },
+      "title": "Dimensions",
+      "type": "array"
+     },
+     "filters": {
+      "additionalProperties": true,
+      "description": "dimension -> value | [values] | null",
+      "title": "Filters",
+      "type": "object"
+     },
+     "limit": {
+      "default": 100,
+      "description": "1..500 (validated by D4)",
+      "title": "Limit",
+      "type": "integer"
+     },
+     "offset": {
+      "default": 0,
+      "title": "Offset",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "dimensions"
+    ],
+    "title": "PivotQuery",
     "type": "object"
    },
    "Report": {
@@ -3560,9 +3601,91 @@
        "title": "Group",
        "type": "string"
       }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "offset",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "title": "Offset",
+       "type": "integer"
+      }
      }
     ],
     "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Group Applications Api Runs  Run Id  Groups  Group  Applications Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
      "422": {
       "content": {
        "application/json": {
@@ -3572,19 +3695,9 @@
        }
       },
       "description": "VALIDATION_ERROR envelope"
-     },
-     "501": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/ErrorBody"
-        }
-       }
-      },
-      "description": "Successful Response"
      }
     },
-    "summary": "Group Applications",
+    "summary": "APP_ID page + full distinct total of a pivot cell (D4 PivotRollup.members; locator bound to run/revision)",
     "tags": [
      "results"
     ]
@@ -3604,7 +3717,79 @@
       }
      }
     ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PivotQuery"
+       }
+      }
+     },
+     "required": true
+    },
     "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Pivot Rollup Api Runs  Run Id  Pivot Post",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Request Entity Too Large"
+     },
      "422": {
       "content": {
        "application/json": {
@@ -3614,19 +3799,9 @@
        }
       },
       "description": "VALIDATION_ERROR envelope"
-     },
-     "501": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/ErrorBody"
-        }
-       }
-      },
-      "description": "Successful Response"
      }
     },
-    "summary": "Server pivot rollup with dims/filters: not implemented by D4 yet (501 ANALYTICS_UNAVAILABLE)",
+    "summary": "Server pivot rollup over BaseFacts/BaseMembership (D4 PivotRollup.cells); distinct totals, signed group locators",
     "tags": [
      "results"
     ]
@@ -3650,9 +3825,7 @@
       "name": "limit",
       "required": false,
       "schema": {
-       "default": 1000,
-       "maximum": 10000,
-       "minimum": 1,
+       "default": 100,
        "title": "Limit",
        "type": "integer"
       }
@@ -3663,7 +3836,6 @@
       "required": false,
       "schema": {
        "default": 0,
-       "minimum": 0,
        "title": "Offset",
        "type": "integer"
       }
@@ -3743,7 +3915,7 @@
       "description": "VALIDATION_ERROR envelope"
      }
     },
-    "summary": "Page of base pivot facts (D4 DuckDBMart.pivot). CNT must not be summed across groups.",
+    "summary": "Page of pivot facts with total (D4 ReportService.pivot_facts). CNT must not be summed across groups.",
     "tags": [
      "results"
     ]
@@ -3847,7 +4019,7 @@
       "description": "VALIDATION_ERROR envelope"
      }
     },
-    "summary": "Drill-down: APP_IDs of a pivot group (D4 DuckDBMart.pivot_app_ids; page only, no full total)",
+    "summary": "Drill-down: distinct APP_IDs of a pivot_facts group with full total (D4 ReportService.group_members)",
     "tags": [
      "results"
     ]

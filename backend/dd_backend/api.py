@@ -232,44 +232,81 @@ def _mart(request: Request, run_id: str):
     return DuckDBMart(path)
 
 
+def _report_service(request: Request, run_id: str):
+    owner, _, svc = _ctx(request)
+    path = svc.mart_path(owner, run_id)
+    from decision_diff.report_service import ReportService
+    return ReportService(path)
+
+
+def _query_error(exc: Exception) -> ApiError:
+    return ApiError(422, "PIVOT_QUERY_INVALID", str(exc)[:300])
+
+
 @router.get("/runs/{run_id}/pivot-facts", tags=["results"], responses=ERRORS,
-            summary="Page of base pivot facts (D4 DuckDBMart.pivot). CNT must not be summed across groups.")
-def pivot_facts(run_id: str, request: Request, limit: int = Query(1000, ge=1, le=10000), offset: int = Query(0, ge=0)) -> dict:
-    with _mart(request, run_id) as mart:
-        items = mart.pivot(limit=limit, offset=offset)
-    return {"run_id": run_id, "items": items, "limit": limit, "offset": offset,
-            "next_offset": offset + limit if len(items) == limit else None}
+            summary="Page of pivot facts with total (D4 ReportService.pivot_facts). CNT must not be summed across groups.")
+def pivot_facts(run_id: str, request: Request, limit: int = Query(100), offset: int = Query(0)) -> dict:
+    from decision_diff.report_service import ReportQueryError
+    with _report_service(request, run_id) as reports:
+        try:
+            page = reports.pivot_facts(limit=limit, offset=offset)
+        except ReportQueryError as exc:
+            raise _query_error(exc)
+    return {"run_id": run_id, **page, "next_offset": offset + limit if offset + limit < page["total"] else None}
 
 
 @router.post("/runs/{run_id}/pivot-facts/applications", tags=["results"], responses=ERRORS,
-             summary="Drill-down: APP_IDs of a pivot group (D4 DuckDBMart.pivot_app_ids; page only, no full total)")
+             summary="Drill-down: distinct APP_IDs of a pivot_facts group with full total (D4 ReportService.group_members)")
 def pivot_drill(run_id: str, body: m.PivotDrillDown, request: Request) -> dict:
-    from decision_diff.mart import MartFilterError
-    with _mart(request, run_id) as mart:
+    from decision_diff.report_service import ReportQueryError
+    with _report_service(request, run_id) as reports:
         try:
-            items = mart.pivot_app_ids(body.group, limit=body.limit)
-        except MartFilterError as exc:
-            raise ApiError(422, "PIVOT_FILTER_INVALID", str(exc))
-    return {"run_id": run_id, "items": items, "limit": body.limit, "total": None,
-            "total_note": "D4 port returns a limited page only; full distinct total is not provided yet"}
+            page = reports.group_members(body.group, limit=body.limit, offset=body.offset)
+        except ReportQueryError as exc:
+            raise _query_error(exc)
+    return {"run_id": run_id, **page}
 
 
-@router.post("/runs/{run_id}/pivot", tags=["results"], status_code=501, responses={501: {"model": m.ErrorBody}},
-             summary="Server pivot rollup with dims/filters: not implemented by D4 yet (501 ANALYTICS_UNAVAILABLE)")
-def pivot_rollup(run_id: str, request: Request):
+def _rollup(request: Request, run_id: str):
+    import duckdb
+    from decision_diff.pivot_rollup import PivotRollup
     owner, _, svc = _ctx(request)
-    svc.get_run(owner, run_id)
-    raise ApiError(501, "ANALYTICS_UNAVAILABLE",
-                   "Server-side pivot rollup (dims/filters, union-membership totals, opaque group locators) is not "
-                   "implemented in the pinned D4 core; use /pivot-facts and /pivot-facts/applications")
+    path = svc.mart_path(owner, run_id)          # owner check + NOT_READY before anything else
+    run = svc.get_run(owner, run_id)
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        return con, PivotRollup(con, run_id=run_id, data_revision=run["dataset_revision_id"],
+                                signing_secret=request.app.state.signing_key)
+    except ValueError as exc:
+        con.close()
+        raise ApiError(409, "ANALYTICS_UNAVAILABLE",
+                       "This run has no BaseFacts (produced by an older core); start a new run", {"reason": str(exc)[:200]})
 
 
-@router.get("/runs/{run_id}/groups/{group}/applications", tags=["results"], status_code=501,
-            responses={501: {"model": m.ErrorBody}})
-def group_applications(run_id: str, group: str, request: Request):
-    owner, _, svc = _ctx(request)
-    svc.get_run(owner, run_id)
-    raise ApiError(501, "ANALYTICS_UNAVAILABLE", "Opaque group locators are not implemented in the pinned D4 core")
+@router.post("/runs/{run_id}/pivot", tags=["results"], responses=ERRORS,
+             summary="Server pivot rollup over BaseFacts/BaseMembership (D4 PivotRollup.cells); distinct totals, signed group locators")
+def pivot_rollup(run_id: str, body: m.PivotQuery, request: Request) -> dict:
+    from decision_diff.pivot_rollup import PivotQueryError
+    con, rollup = _rollup(request, run_id)
+    try:
+        return rollup.cells(dimensions=body.dimensions, filters=body.filters, limit=body.limit, offset=body.offset)
+    except PivotQueryError as exc:
+        raise _query_error(exc)
+    finally:
+        con.close()
+
+
+@router.get("/runs/{run_id}/groups/{group}/applications", tags=["results"], responses=ERRORS,
+            summary="APP_ID page + full distinct total of a pivot cell (D4 PivotRollup.members; locator bound to run/revision)")
+def group_applications(run_id: str, group: str, request: Request, limit: int = Query(50), offset: int = Query(0)) -> dict:
+    from decision_diff.pivot_rollup import PivotQueryError
+    con, rollup = _rollup(request, run_id)
+    try:
+        return rollup.members(group, limit=limit, offset=offset)
+    except PivotQueryError as exc:
+        raise _query_error(exc)
+    finally:
+        con.close()
 
 
 @router.get("/runs/{run_id}/applications/{app_id}", tags=["results"], responses=ERRORS,

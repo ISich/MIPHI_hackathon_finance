@@ -63,7 +63,9 @@ curl -sS -b "$jar" "$BASE/api/reports/$rep/checks.html" -o "$OUT/14_report.html"
 save 15_pivot_facts GET "/api/runs/$run/pivot-facts?limit=3"
 save 16_application GET "/api/runs/$run/applications/I32554354"
 save 17_drilldown POST "/api/runs/$run/pivot-facts/applications" '{"group":{"SOURCE":"AFTER","PATH":"decisionResult.decision"}}'
-save 18_pivot_rollup_501 POST "/api/runs/$run/pivot" '{}'
+save 18_pivot_rollup POST "/api/runs/$run/pivot" '{"dimensions":["SOURCE","CHANGE_TYPE"],"limit":20}'
+loc=$(j 18_pivot_rollup '["items"][0]["group_locator"]')
+save 18b_group_applications GET "/api/runs/$run/groups/$loc/applications?limit=10"
 check=$("$PY" -c "import json;print([s['script_id'] for s in json.load(open('$OUT/04_scripts.json')) if s['kind']=='check'][0])")
 save 19_check_run_accepted POST "/api/runs/$run/check-runs" "{\"checks\":[{\"script_id\":\"$check\",\"params\":{\"max_drop_rel\":0.0}}]}" -H "Idempotency-Key: smoke-cr-$PORT"
 cr=$(j 19_check_run_accepted '["check_run_id"]')
