@@ -281,6 +281,10 @@ export class ApiClient {
   code(id: string, slot: string): Promise<CodeSnapshot> {
     return this.request("GET", `/api/runs/${enc(id)}/code/${enc(slot)}`);
   }
+  /** Code snapshot of a specific CheckRun (slots like check-01 are reused across CheckRuns). */
+  checkRunCode(checkRunId: string, slot: string): Promise<CodeSnapshot> {
+    return this.request("GET", `/api/check-runs/${enc(checkRunId)}/code/${enc(slot)}`);
+  }
 
   // ------------------------------------------------------------ reporting
   summary(id: string): Promise<Summary> {

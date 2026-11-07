@@ -94,6 +94,29 @@ describe("Run journal longer than one events page", () => {
   });
 });
 
+describe("Code links of later CheckRuns", () => {
+  it("an event of a later CheckRun opens that CheckRun's code snapshot, not the Run's original slot", async () => {
+    resetMock({ customExecution: true });
+    const run = await completedRun();
+    const script = await testApi.createScript({ kind: "check", name: "later check", code: "# LATER CHECK CODE\nCHECK = {}\n" });
+    const cfg = await testApi.configuration(run.config_id);
+    let cr = await testApi.createCheckRun(run.run_id, { checks: [...cfg.checks, { script_id: script.script_id }] }, "k-cr");
+    for (let i = 0; i < 10 && cr.status !== "COMPLETED"; i++) cr = await testApi.checkRun(cr.check_run_id);
+    const w = mnt(RunPage, { runId: run.run_id, tab: "monitor", query: new URLSearchParams() });
+    const summary = await waitFor(() => {
+      const s = [...document.querySelectorAll("summary")].find((x) => x.textContent === "код check-06");
+      if (!s) throw new Error("no check-06 link yet");
+      return s;
+    });
+    (summary.parentElement as HTMLDetailsElement).open = true;
+    summary.parentElement!.dispatchEvent(new Event("toggle"));
+    await waitFor(() => expect(text(w)).toContain("# LATER CHECK CODE"));
+    expect(holder.calls.some((c) => c.url === `/api/check-runs/${cr.check_run_id}/code/check-06`)).toBe(true);
+    expect(holder.calls.some((c) => c.url === `/api/runs/${run.run_id}/code/check-06`)).toBe(false);
+    w.unmount();
+  });
+});
+
 describe("Progress", () => {
   it("never invents a percent when total is unknown", () => {
     const w = mnt(ProgressBar, { processed: 5, total: null });

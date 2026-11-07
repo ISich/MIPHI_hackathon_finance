@@ -45,7 +45,7 @@ const stageClass = (i: number) => (i < stageIdx.value || props.run.status === "C
           <td>{{ e.stage ?? "" }}{{ e.substep ? ` / ${e.substep}` : "" }}</td>
           <td>{{ e.level }}</td>
           <td>{{ e.message }}</td>
-          <td><CodeSnapshotLink v-if="slotOfCodeRef(e.code_ref)" :run-id="run.run_id" :slot="slotOfCodeRef(e.code_ref)!" /></td>
+          <td><CodeSnapshotLink v-if="slotOfCodeRef(e.code_ref)" :run-id="run.run_id" :slot="slotOfCodeRef(e.code_ref)!" :check-run-id="e.check_run_id" /></td>
         </tr>
       </tbody>
     </table>

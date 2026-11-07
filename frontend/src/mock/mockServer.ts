@@ -234,12 +234,12 @@ export function createMockFetch(opts: MockOptions) {
       custom_scripts: ids,
     });
 
-  function pushEvent(run: MockRun, message: string, codeRef: string | null = null, level = "INFO") {
+  function pushEvent(run: MockRun, message: string, codeRef: string | null = null, level = "INFO", checkRunId: string | null = null) {
     const list = events.get(run.run_id) ?? [];
     list.push({
       seq: list.length + 1,
       ts: NOW,
-      check_run_id: null,
+      check_run_id: checkRunId,
       stage: run.stage,
       substep: null,
       level,
@@ -353,6 +353,11 @@ export function createMockFetch(opts: MockOptions) {
 
   function finishCheckRun(cr: MockCheckRun) {
     const results = cr._refs.map(executeCheck);
+    const owner = runs.find((r) => r.run_id === cr.run_id);
+    if (owner && !cr.initial) {
+      // like backend: check-run events land in the Run journal with check_run_id and per-slot code refs
+      results.forEach((r) => pushEvent(owner, `Check ${r.ex.check_id} executed (MOCK)`, `${r.ex.slot}@mock${cr.check_run_id.slice(-6)}`, "INFO", cr.check_run_id));
+    }
     cr.executions = results.map((r) => r.ex);
     cr.status = "COMPLETED";
     cr.finished_at = NOW;
@@ -649,6 +654,16 @@ export function createMockFetch(opts: MockOptions) {
         } else finishCheckRun(cr);
       }
       return json(200, stripCr(cr));
+    }
+    if ((m = p.match(/^\/api\/check-runs\/([^/]+)\/code\/([^/]+)$/))) {
+      const cr = checkRuns.find((c) => c.check_run_id === m![1]);
+      if (!cr) return err(404, "NOT_FOUND", "check run not found");
+      const slot = decodeURIComponent(m[2]!);
+      const idx = Number(slot.replace("check-", "")) - 1;
+      const ref = cr._refs[idx];
+      if (!slot.startsWith("check-") || !ref) return err(404, "NOT_FOUND", "code snapshot not found");
+      const s = scriptById(ref.script_id)!;
+      return json(200, { run_id: cr.run_id, check_run_id: cr.check_run_id, slot, script_id: s.script_id, kind: "check", source: s.source, name: s.name, script_revision: s.revision, code_sha256: s.code_sha256, params: {}, code: codeById.get(s.script_id) ?? `# MOCK builtin source of ${s.name}\n` });
     }
     if ((m = p.match(/^\/api\/reports\/([^/]+)$/))) {
       const r = reports.find((x) => x.report_id === m![1]);

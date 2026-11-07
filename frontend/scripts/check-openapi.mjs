@@ -28,6 +28,7 @@ const USED = [
   ["get", "/api/runs/{run_id}", "Run"],
   ["get", "/api/runs/{run_id}/events", "EventPage"],
   ["get", "/api/runs/{run_id}/code/{slot}", "CodeSnapshot"],
+  ["get", "/api/check-runs/{check_run_id}/code/{slot}", "CodeSnapshot"],
   ["get", "/api/runs/{run_id}/summary", null],
   ["post", "/api/runs/{run_id}/pivot", null],
   ["get", "/api/runs/{run_id}/groups/{group}/applications", null],
