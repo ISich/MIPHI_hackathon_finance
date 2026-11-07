@@ -170,20 +170,47 @@ def test_list_for_scalar_filter_is_mart_filter_error(mart, name):
     pytest.fail(f"list for scalar filter {name!r} was silently accepted")
 
 
+def drilldown_page(result):
+    """ONE response contract for both drill-down tests (CR2 #1).
+
+    Target (data.md): mapping with ``items`` (APP_ID page) and ``total`` (full distinct count).
+    Pinned D4 today: a plain list (page only) -> (items, None). Anything else is a contract error.
+    """
+    if isinstance(result, dict):
+        assert set(result) >= {"items", "total"}, result
+        assert isinstance(result["items"], list) and isinstance(result["total"], int), result
+        return [str(x) for x in result["items"]], result["total"]
+    assert isinstance(result, list), type(result)
+    return [str(x) for x in result], None
+
+
+def _expected_members(mart, fact):
+    """Independent membership from comparison rows: same group, the fact's side present."""
+    side = "ADJUSTED_BEFORE" if fact["SOURCE"] == "BEFORE" else "ADJUSTED_AFTER"
+    absent = "ATTRIBUTE_NEW" if fact["SOURCE"] == "BEFORE" else "ATTRIBUTE_LOST"
+    return sorted({r["APP_ID"] for r in mart.rows(path=fact["PATH"], array_key=fact["ARRAY_KEY"],
+                                                  diff_flag=int(fact["DIFF_FLAG"]))
+                   if r[side] == fact["VALUE_ADJUSTED"] and r["CHANGE_TYPE"] != absent})
+
+
 def test_pivot_drilldown_returns_full_distinct_total(mart):
-    result = mart.pivot_app_ids({"SOURCE": "BEFORE", "PATH": SCORE}, limit=1)
-    known_defect(isinstance(result, list) and len(result) == 1,
-                 "DISC-03: pivot_app_ids returns a capped list without full distinct total (data.md)")
-    assert isinstance(result, dict) and result.get("total") == 4
+    items, total = drilldown_page(mart.pivot_app_ids({"SOURCE": "BEFORE", "PATH": SCORE}, limit=1))
+    assert len(items) == 1
+    known_defect(total is None, "DISC-03: pivot_app_ids returns a page without full distinct total (data.md)")
+    assert total == 4
 
 
 def test_pivot_drilldown_matches_fact_cnt(mart):
-    """CNT of a base fact == distinct APP_IDs from drill-down (AC-09, single fact)."""
+    """AC-09: drill-down membership of a base fact == independently computed APP_ID set, and its size == CNT."""
     facts = [f for f in mart.pivot(limit=100000) if f["PATH"] == SCORE]
     assert facts
     for fact in facts:
         group = {k: fact[k] for k in ("PATH", "ARRAY_KEY", "VALUE_ADJUSTED", "DIFF_FLAG", "SOURCE")}
-        assert len(mart.pivot_app_ids(group, limit=10000)) == fact["CNT"]
+        items, total = drilldown_page(mart.pivot_app_ids(group, limit=10000))
+        expected = _expected_members(mart, fact)
+        assert sorted(items) == expected and len(expected) == fact["CNT"], (fact, items, expected)
+        if total is not None:
+            assert total == fact["CNT"]
 
 
 def test_base_facts_have_change_type_dimension(mart):
