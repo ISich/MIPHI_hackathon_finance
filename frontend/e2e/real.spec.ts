@@ -113,3 +113,35 @@ test("real: new check — builtin-only refusal or trusted-local new report", asy
   await page.screenshot({ path: info.outputPath("real-new-check.png"), fullPage: true });
   expect(consoleErrors).toEqual([]);
 });
+
+test("real: modified procedure (workspace normalize) → new Run uses the new snapshot", async ({ page, consoleErrors }) => {
+  const request = page.request;
+  // 1. workspace script from the backend's own normalize example
+  await page.goto("/#/scripts/new");
+  await page.getByRole("combobox").first().selectOption("normalize");
+  await page.getByRole("button", { name: "Вставить пример" }).click();
+  const name = `e2e normalize ${Date.now()}`;
+  await page.getByLabel("Название").fill(name);
+  await page.getByRole("button", { name: "Сохранить snapshot" }).click();
+  await expect(page.getByRole("status")).toContainText("Сохранено");
+  // 2. configuration with that script in the normalize slot
+  await page.goto("/#/runs/new");
+  const ds = page.getByRole("combobox", { name: "Набор данных" });
+  await ds.selectOption({ label: (await ds.locator("option", { hasText: "core fixture" }).textContent())!.trim() });
+  const slot = page.getByRole("combobox", { name: "Процедура normalize" });
+  await slot.selectOption({ label: (await slot.locator("option", { hasText: name }).textContent())!.trim() });
+  await page.getByRole("button", { name: /Сохранить конфигурацию и запустить/ }).click();
+  if (!TRUSTED) {
+    await expect(page.locator('[data-error-code="CUSTOM_EXECUTION_DISABLED"]')).toContainText("выключено на сервере");
+    expect(page.url()).toContain("#/runs/new");
+    expect(consoleErrors.filter((e) => !e.includes("403"))).toEqual([]);
+    return;
+  }
+  await expect(page).toHaveURL(/#\/runs\/run_/);
+  const runId = decodeURIComponent(page.url().split("#/runs/")[1]!.split(/[/?]/)[0]!);
+  await expect(page.getByTestId("run-status")).toHaveText("COMPLETED", { timeout: 150_000 });
+  const snap = await api<{ source: string; name: string }>(request, `/api/runs/${runId}/code/normalize`);
+  expect(snap.source).toBe("workspace");
+  expect(snap.name).toBe(name);
+  expect(consoleErrors).toEqual([]);
+});
