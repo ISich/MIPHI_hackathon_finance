@@ -8,7 +8,8 @@ import { href } from "../router";
 const MAX_FACT_APPS = 10000;
 
 /** Drill-down from a D4 base fact (fallback mode): POST /pivot-facts/applications. */
-const props = defineProps<{ runId: string; group: string; cnt: number | null }>();
+const props = defineProps<{ runId: string; group: string; cnt: number | null; report?: string | null }>();
+const backHref = computed(() => href("runs", props.runId, "pivot") + (props.report ? `?report=${encodeURIComponent(props.report)}` : ""));
 const parsed = computed<Record<string, unknown> | null>(() => {
   try {
     const v: unknown = JSON.parse(props.group);
@@ -26,7 +27,7 @@ const page = useApi(
 
 <template>
   <section>
-    <p><a :href="href('runs', runId, 'pivot')">← К базовым фактам</a></p>
+    <p><a :href="backHref">← К базовым фактам</a></p>
     <h1>Заявки факта</h1>
     <dl v-if="parsed" class="kv">
       <div v-for="(v, k) in parsed" :key="k" class="kv-pair">

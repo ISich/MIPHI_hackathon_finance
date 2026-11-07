@@ -28,6 +28,8 @@ const pivot = useApi(
 const unavailable = computed(() => (pivot.error instanceof ApiError && pivot.error.isUnavailable ? pivot.error : null));
 const go = (s: PivotState) =>
   navigate(`${href("runs", props.run.run_id, "pivot")}?${pivotQuery(s)}${reportCtx.value ? `&report=${encodeURIComponent(reportCtx.value)}` : ""}`);
+/** Back-query for drill-down: layout + explicit report context. */
+const backQuery = computed(() => (reportCtx.value ? `${qs.value}${qs.value ? "&" : ""}report=${encodeURIComponent(reportCtx.value)}` : qs.value));
 const isEmpty = (d: PivotResponse) => d.cells.length === 0 && d.grand_total.count === 0;
 const checksHref = computed(() => `${href("runs", props.run.run_id, "checks")}?report=${encodeURIComponent(reportCtx.value ?? "")}`);
 </script>
@@ -46,13 +48,13 @@ const checksHref = computed(() => `${href("runs", props.run.run_id, "checks")}?r
           считать сервер.
         </div>
       </div>
-      <BaseFactsView :run="run" />
+      <BaseFactsView :run="run" :report="reportCtx" />
     </template>
     <template v-else>
       <PivotControls :state="state" @change="go" />
       <AsyncView :value="pivot" what="Расчёт сводной на сервере" :is-empty="isEmpty" empty="Нет данных для выбранных фильтров.">
         <template #default="{ data }">
-          <PivotTable v-if="data.run_id === run.run_id" :data="data" :run-id="run.run_id" :back-query="qs" />
+          <PivotTable v-if="data.run_id === run.run_id" :data="data" :run-id="run.run_id" :back-query="backQuery" />
         </template>
       </AsyncView>
     </template>

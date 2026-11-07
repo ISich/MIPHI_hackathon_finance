@@ -117,6 +117,40 @@ describe("Code links of later CheckRuns", () => {
   });
 });
 
+describe("Explicit report context survives navigation", () => {
+  it("run tabs keep ?report=", async () => {
+    const run = await completedRun();
+    const w = mnt(RunPage, { runId: run.run_id, tab: "checks", query: new URLSearchParams("report=rep_X") });
+    await waitFor(() => expect(link(w, "Сводная (pivot)").getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?report=rep_X`));
+    expect(link(w, "Мониторинг").getAttribute("href")).toBe(`#/runs/${run.run_id}/monitor?report=rep_X`);
+    w.unmount();
+  });
+
+  it("pivot drill-down and its way back keep ?report=", async () => {
+    resetMock({ serverPivot: true });
+    const run = await completedRun();
+    const w = mnt(PivotView, { run, query: new URLSearchParams("rows=PATH&report=rep_X") });
+    const t = await waitFor(() => table(w, "Сводная таблица"));
+    const back = new URLSearchParams(t.querySelector("a")!.getAttribute("href")!.split("?")[1]).get("back")!;
+    expect(new URLSearchParams(back).get("report")).toBe("rep_X");
+    expect(new URLSearchParams(back).get("rows")).toBe("PATH");
+    w.unmount();
+  });
+
+  it("base-facts drill-down keeps ?report= on the way back", async () => {
+    const run = await completedRun();
+    const w = mnt(PivotView, { run, query: new URLSearchParams("report=rep_X") });
+    const t = await waitFor(() => table(w, "Базовые факты"));
+    const href = t.querySelector("a")!.getAttribute("href")!;
+    expect(new URLSearchParams(href.split("?")[1]).get("report")).toBe("rep_X");
+    w.unmount();
+    const g = new URLSearchParams(href.split("?")[1]);
+    const w2 = mnt(FactApplications, { runId: run.run_id, group: g.get("g")!, cnt: 1, report: "rep_X" });
+    expect(link(w2, /К базовым фактам/).getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?report=rep_X`);
+    w2.unmount();
+  });
+});
+
 describe("Progress", () => {
   it("never invents a percent when total is unknown", () => {
     const w = mnt(ProgressBar, { processed: 5, total: null });

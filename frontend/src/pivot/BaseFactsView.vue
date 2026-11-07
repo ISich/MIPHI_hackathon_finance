@@ -11,13 +11,13 @@ import { FACT_COLUMNS, FACTS_PAGE, factGroup } from "./facts";
  * Fallback while the server rollup is unavailable: pages of D4 base facts
  * (GET /pivot-facts). CNT is per fact and must not be summed — no totals here.
  */
-const props = defineProps<{ run: Run }>();
+const props = defineProps<{ run: Run; report?: string | null }>();
 const offset = ref(0);
 const onlyDiff = ref(true);
 const page = useApi(() => `facts:${props.run.run_id}:${offset.value}`, () => api.pivotFacts(props.run.run_id, offset.value, FACTS_PAGE));
 const isEmpty = (p: PivotFactsPage) => p.items.length === 0;
 const visible = (p: PivotFactsPage) => (onlyDiff.value ? p.items.filter((f) => Number(f.DIFF_FLAG) === 1) : p.items);
-const factHref = (f: PivotFact) => `${href("runs", props.run.run_id, "fact-apps")}?g=${encodeURIComponent(JSON.stringify(factGroup(f)))}&cnt=${f.CNT}`;
+const factHref = (f: PivotFact) => `${href("runs", props.run.run_id, "fact-apps")}?g=${encodeURIComponent(JSON.stringify(factGroup(f)))}&cnt=${f.CNT}${props.report ? `&report=${encodeURIComponent(props.report)}` : ""}`;
 </script>
 
 <template>

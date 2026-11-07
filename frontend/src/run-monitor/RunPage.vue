@@ -95,6 +95,8 @@ usePolling(
   () => props.runId,
 );
 
+/** Explicitly chosen report travels with tab navigation (otherwise checks would fall back to the initial report). */
+const reportSuffix = computed(() => (props.query.get("report") ? `?report=${encodeURIComponent(props.query.get("report")!)}` : ""));
 const completed = computed(() => run.value?.status === "COMPLETED");
 const selected = computed<Tab>(
   () => TABS.find(([t]) => t === props.tab)?.[0] ?? (completed.value && openedCompleted.value ? "summary" : "monitor"),
@@ -114,7 +116,7 @@ const selected = computed<Tab>(
       <nav class="tabs" aria-label="Разделы запуска">
         <template v-for="[t, label] in TABS" :key="t">
           <span v-if="t !== 'monitor' && !completed" class="tab disabled" title="Отчёт доступен после завершения Run" aria-disabled="true">{{ label }}</span>
-          <a v-else :class="['tab', { active: selected === t }]" :href="href('runs', runId, t)" :aria-current="selected === t ? 'page' : undefined">{{ label }}</a>
+          <a v-else :class="['tab', { active: selected === t }]" :href="href('runs', runId, t) + reportSuffix" :aria-current="selected === t ? 'page' : undefined">{{ label }}</a>
         </template>
       </nav>
       <RunMonitor v-if="selected === 'monitor' || !completed" :run="run" :events="events" />
