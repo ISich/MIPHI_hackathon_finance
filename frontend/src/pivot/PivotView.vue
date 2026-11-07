@@ -26,6 +26,15 @@ const pivot = useApi(
     }),
 );
 const unavailable = computed(() => (pivot.error instanceof ApiError && pivot.error.isUnavailable ? pivot.error : null));
+/** Layout/filters explicitly requested in the URL; the base-facts fallback cannot apply them. */
+const unapplied = computed(() => {
+  const q = props.query;
+  const parts: string[] = [];
+  if (q.get("rows")) parts.push(`Строки: ${state.value.rows.join(", ")}`);
+  if (q.get("cols")) parts.push(`Колонки: ${state.value.cols.join(", ")}`);
+  for (const f of state.value.filters) parts.push(`${f.dim} ∈ ${f.values.map((v) => (v === "" ? "∅" : v)).join(" | ")}`);
+  return parts;
+});
 const go = (s: PivotState) =>
   navigate(`${href("runs", props.run.run_id, "pivot")}?${pivotQuery(s)}${reportCtx.value ? `&report=${encodeURIComponent(reportCtx.value)}` : ""}`);
 /** Back-query for drill-down: layout + explicit report context. */
@@ -47,6 +56,12 @@ const checksHref = computed(() => `${href("runs", props.run.run_id, "checks")}?r
           Ниже — базовые факты D4 (фиксированная детализация) с drill-down. Раскладку строк/колонок UI не пересчитывает сам: distinct-итоги должен
           считать сервер.
         </div>
+      </div>
+      <div v-if="unapplied.length" class="state state-notready" role="note" data-testid="unapplied-layout">
+        <strong>Запрошенные раскладка и фильтры не применены</strong> — базовые факты показываются целиком, без них:
+        <ul>
+          <li v-for="p in unapplied" :key="p">{{ p }}</li>
+        </ul>
       </div>
       <BaseFactsView :run="run" :report="reportCtx" />
     </template>

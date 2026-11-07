@@ -252,6 +252,27 @@ describe("Report context survives the application card", () => {
   });
 });
 
+describe("Base-facts fallback names what it could not apply", () => {
+  it("lists the URL filters and layout that the fallback does not apply", async () => {
+    const run = await completedRun();
+    const w = mnt(PivotView, { run, query: new URLSearchParams("rows=PATH&cols=SOURCE&f.PATH=score.okb.value&f.DIFF_FLAG=1") });
+    const note = await waitFor(() => byTestId(w, "unapplied-layout"));
+    expect(note.textContent).toContain("PATH ∈ score.okb.value");
+    expect(note.textContent).toContain("DIFF_FLAG ∈ 1");
+    expect(note.textContent).toContain("Строки: PATH");
+    expect(note.textContent).toContain("Колонки: SOURCE");
+    w.unmount();
+  });
+
+  it("says nothing extra when the URL has no layout or filters", async () => {
+    const run = await completedRun();
+    const w = mnt(PivotView, { run, query: new URLSearchParams("") });
+    await waitFor(() => table(w, "Базовые факты"));
+    expect(document.querySelector('[data-testid="unapplied-layout"]')).toBeNull();
+    w.unmount();
+  });
+});
+
 describe("Progress", () => {
   it("never invents a percent when total is unknown", () => {
     const w = mnt(ProgressBar, { processed: 5, total: null });
