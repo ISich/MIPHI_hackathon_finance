@@ -5,7 +5,8 @@
 RESULTS_DIR contains BEFORE_MASTER/ and AFTER_BETA/ (read-only; served as allowlisted root `full`; never copied).
 Starts its own backend on a free loopback port with a temporary DD_HOME, registers the dataset over HTTP, runs all
 built-in checks, then independently runs the pinned core CLI on the same folders and compares. Writes
-OUT_DIR/full_run.json. Exit code 0 only if the Run COMPLETED, every check SUCCEEDED and API summary == CLI summary.
+OUT_DIR/full_run.json. Exit code 0 only if acceptance_problems() is empty: Run COMPLETED, initial report PUBLISHED and
+COMPLETE, exactly the organizer checks executed and all SUCCEEDED, API summary == CLI summary.
 """
 from __future__ import annotations
 
@@ -20,11 +21,37 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
-from support.backend_proc import start_backend  # noqa: E402
+from support.backend_proc import organizer_checks, start_backend  # noqa: E402
 from support.http_api import Api  # noqa: E402
 
 KEYS = ("total_apps", "changed_apps", "decision_changed_apps", "changed_attributes", "change_types",
         "approval_rate_before", "approval_rate_after")
+
+
+def organizer_check_ids(checks_dir: Path) -> set[str]:
+    return {p.stem[len("check_"):] for p in checks_dir.glob("check_*.py")}
+
+
+def acceptance_problems(report: dict, expected_check_ids: set[str]) -> list[str]:
+    """CR3 #4: why the full run is NOT accepted (empty = accepted). An empty execution list is a failure."""
+    problems = []
+    if report.get("run", {}).get("status") != "COMPLETED":
+        problems.append(f"run status {report.get('run', {}).get('status')!r}")
+    if not report.get("api_equals_cli"):
+        problems.append("API summary differs from the independent core CLI")
+    checks = report.get("checks") or {}
+    if checks.get("completeness") != "COMPLETE":
+        problems.append(f"report completeness {checks.get('completeness')!r}")
+    if report.get("report_status") != "PUBLISHED":
+        problems.append(f"initial report status {report.get('report_status')!r}")
+    executions = checks.get("executions") or []
+    executed = sorted(str(e.get("check_id")) for e in executions)
+    if not expected_check_ids or executed != sorted(expected_check_ids):
+        problems.append(f"executed checks {executed} != expected {sorted(expected_check_ids)}")
+    bad = [e for e in executions if e.get("execution_status") != "SUCCEEDED"]
+    if bad:
+        problems.append(f"non-succeeded executions {bad}")
+    return problems
 
 
 def count_json(folder: Path) -> int:
@@ -67,6 +94,7 @@ def main(results: str, out_dir: str) -> int:
                                                                        "duration_seconds")} for e in checks["executions"]],
                                 "rows": [{k: r[k] for k in ("LABEL", "ARGUMENT", "CNT", "TOTAL", "METRIC", "RESULT",
                                                             "CONFIDENCE")} for r in checks["checks"]]}
+            report["report_status"] = api.get(f"/api/reports/{run['initial_report_id']}").json().get("status")
             report["artifacts"] = [{k: a[k] for k in ("kind", "rows", "bytes", "sha256")}
                                    for a in api.get(f"/api/runs/{run['run_id']}/artifacts").json()["items"]]
     finally:
@@ -85,11 +113,12 @@ def main(results: str, out_dir: str) -> int:
         report["cli_issues"] = json.loads((cli_out / "issues.json").read_text(encoding="utf-8"))
     api_s = report.get("api_summary") or {}
     report["api_equals_cli"] = bool(api_s) and all(api_s.get(k) == report.get("cli_summary", {}).get(k) for k in KEYS)
+    report["acceptance_problems"] = acceptance_problems(report, organizer_check_ids(organizer_checks()))
     (out / "full_run.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    ok = (report.get("run", {}).get("status") == "COMPLETED" and report["api_equals_cli"]
-          and all(e["execution_status"] == "SUCCEEDED" for e in report.get("checks", {}).get("executions", [])))
+    ok = not report["acceptance_problems"]
     print(json.dumps({k: report.get(k) for k in ("files", "run", "api_summary", "cli_summary", "api_equals_cli",
-                                                 "wall_seconds_accept_to_final")}, ensure_ascii=False, indent=1))
+                                                 "wall_seconds_accept_to_final", "acceptance_problems")},
+                     ensure_ascii=False, indent=1))
     return 0 if ok else 1
 
 
