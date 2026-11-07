@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
-CORE_SHA = os.environ.get("CORE_SHA", "496d8cdabfe215ae1c6a740d964df9189382196b")
+CORE_SHA = os.environ.get("CORE_SHA", (ROOT / "CORE_COMMIT").read_text().strip())
 
 
 @pytest.fixture(scope="session")

@@ -153,8 +153,8 @@ def test_organizer_check_sources_unchanged_from_pinned_commit(organizer_checks_d
     import os
     import subprocess
 
-    sha = os.environ.get("CORE_SHA", "496d8cdabfe215ae1c6a740d964df9189382196b")
     root = Path(__file__).resolve().parents[2]
+    sha = os.environ.get("CORE_SHA", (root / "CORE_COMMIT").read_text().strip())
     for path in sorted(organizer_checks_dir.glob("check_*.py")):
         pinned = subprocess.run(["git", "-C", str(root), "show", f"{sha}:checks/{path.name}"],
                                 capture_output=True, check=True).stdout

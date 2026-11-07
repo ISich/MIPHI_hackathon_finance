@@ -1,6 +1,6 @@
 # QA suite dependencies. Core (D1/D4) is pinned to the verified SomeShit commit.
-# Update CORE_SHA here and in scripts/fetch_core_checks.sh together.
-decision-diff-core @ git+https://github.com/ISich/MIPHI_hackathon_finance@496d8cdabfe215ae1c6a740d964df9189382196b
+# Must equal the SHA in ./CORE_COMMIT (checked by tests/contracts/test_core_pin.py).
+decision-diff-core @ git+https://github.com/ISich/MIPHI_hackathon_finance@421da26caf030ce230778ffbd07ee1f72bf71217
 duckdb>=1.1,<2
 pytest>=8
 httpx>=0.27

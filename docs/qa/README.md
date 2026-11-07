@@ -28,7 +28,7 @@
 
 ```bash
 python3 -m venv .venv                      # нужен пакет python3-venv
-.venv/bin/python -m pip install -r requirements-qa.txt
+.venv/bin/python -m pip install -r requirements-qa.txt   # при смене CORE_COMMIT: --force-reinstall --no-deps (версия пакета не меняется)
 scripts/fetch_core_checks.sh               # один раз; нужен fetch origin SomeShit
 
 # 1) offline-контракты ядра/D4 (~15 с)
