@@ -25,7 +25,8 @@ CASES = {
                       [H + "test_runs_async.py::test_not_ready_before_completion_and_status_stays_responsive"],
                       ("passed", "xfailed")),  # xfailed = API-DISC-05 window observed (timing-dependent)
     "cr8_precise_xfail": ("builtin-only", "pivot_500",
-                          [H + "test_results_contract.py::test_pivot_rollup_with_user_layout"], "xfailed"),
+                          [H + "test_results_contract.py::test_pivot_rollup_with_user_layout"],
+                          ("passed", "xfailed")),  # CR3 #7: a working pivot passes; 501 is the precise known defect
     "cr2_2_bounded_wait": ("builtin-only", "stuck_running",
                            [H + "test_runs_async.py::test_not_ready_before_completion_and_status_stays_responsive"],
                            None),
@@ -33,13 +34,24 @@ CASES = {
                                      [H + "test_runs_async.py::test_not_ready_before_completion_and_status_stays_responsive"],
                                      None),
     "cr2_4_query_isolation": ("builtin-only", "shared_owner_for_query",
-                              [H + "test_owner_isolation.py::test_query_endpoints_and_group_locators_are_owner_scoped"],
+                              [H + "test_owner_isolation.py::test_query_endpoints_are_owner_scoped"],
                               "passed"),
+    "cr3_1_malformed_report": ("builtin-only", "checks_malformed_rows",
+                               [H + "test_runs_async.py::test_not_ready_before_completion_and_status_stays_responsive"],
+                               None),
+    "cr3_2_mode_missing": ("builtin-only", "mode_missing",
+                           [H + "test_execution_policy.py::test_custom_check_only_run_is_refused_and_never_executes"],
+                           None),
+    "cr3_5_pivot_without_locator": ("builtin-only", "pivot_200_no_locator",
+                                    [H + "test_owner_isolation.py::test_group_locator_is_owner_scoped"],
+                                    ("passed", "skipped")),  # skipped = documented 501, passed = real locator
 }
 # Cases whose mutation must lead to SKIP (not failure): a builtin-only backend that refuses custom configurations.
 SKIP_CASES = {
     "cr2_7_snapshot_guard": ("builtin-only", "refuse_custom_config",
                              [H + "test_snapshot_and_reports.py::test_config_and_code_snapshot_survive_script_edit"]),
+    "cr3_3_early_rejection": ("builtin-only", "reject_badjson_dataset",
+                              [H + "test_runs_async.py::test_failed_run_report_data_is_not_served_as_success"]),
 }
 EXTRA_ENV = {"cr2_2_bounded_wait": {"QA_RUN_TIMEOUT": "30"}}
 

@@ -17,6 +17,11 @@ Mutations:
   shared_owner_for_query    - pivot / pivot-facts/applications / groups/{g}/applications ignore the caller's
                               session: the first cookie seen on any of them is used for all later calls
   refuse_custom_config      - POST /api/configurations carrying "checks" answers 403 CUSTOM_EXECUTION_DISABLED
+  checks_malformed_rows     - every 200 from /runs/{id}/checks keeps its identity fields but has checks=[{}],
+                              executions=[{}]
+  mode_missing              - /api/session omits execution_mode
+  reject_badjson_dataset    - POST /api/datasets for the 'badjson' fixture answers 422 (early-rejection policy)
+  pivot_200_no_locator      - POST /api/runs/{id}/pivot answers 200 with cells lacking any group locator
 """
 from __future__ import annotations
 
@@ -75,6 +80,13 @@ def make_proxy(upstream: str, mutations: set[str]) -> ThreadingHTTPServer:
                     and b'"checks"' in body:
                 return self._json(403, {"code": "CUSTOM_EXECUTION_DISABLED", "message": "disabled", "details": {},
                                         "request_id": "x"})
+            if "reject_badjson_dataset" in mutations and method == "POST" and path == "/api/datasets" \
+                    and b"badjson" in body:
+                return self._json(422, {"code": "DATASET_INVALID_JSON", "message": "invalid JSON", "details": {},
+                                        "request_id": "x"})
+            if "pivot_200_no_locator" in mutations and method == "POST" and re.fullmatch(r"/api/runs/[^/]+/pivot",
+                                                                                          path):
+                return self._json(200, {"items": [{"dimensions": {"PATH": "x"}, "cnt": 1}], "total": 1})
             if "pivot_500" in mutations and method == "POST" and re.fullmatch(r"/api/runs/[^/]+/pivot", path):
                 return self._json(500, {"code": "INTERNAL_ERROR", "message": "boom", "details": {}, "request_id": "x"})
             resp = upstream_request(method, path, body, headers)
@@ -98,6 +110,15 @@ def make_proxy(upstream: str, mutations: set[str]) -> ThreadingHTTPServer:
                 if upstream_run.get("status") not in ("COMPLETED", "FAILED") and \
                         upstream_run.get("stage") in ("CHECKING", "FINALIZING"):
                     return self._json(200, {})
+            if "checks_malformed_rows" in mutations and resp.status_code == 200 and \
+                    re.fullmatch(r"/api/runs/[^/]+/checks", path.split("?")[0]):
+                data = resp.json()
+                data.update(checks=[{}], executions=[{}])
+                content = json.dumps(data).encode()
+            if "mode_missing" in mutations and path.startswith("/api/session") and resp.status_code == 200:
+                data = resp.json()
+                data.pop("execution_mode", None)
+                content = json.dumps(data).encode()
             if "lie_mode_builtin" in mutations and path.startswith("/api/session") and resp.status_code == 200:
                 data = resp.json()
                 data["execution_mode"] = "builtin-only"
