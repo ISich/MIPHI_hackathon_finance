@@ -6,6 +6,7 @@ import subprocess
 import sys
 import uuid
 
+import pytest
 
 from support.http_api import assert_envelope, known_defect
 
@@ -106,15 +107,48 @@ def test_post_run_without_idempotency_key_is_explicit_error(api_a, completed_exa
 FINAL_STATES = ("COMPLETED", "FAILED")
 
 
-def _is_initial_report(body, run) -> bool:
-    """A real, well-formed copy of THIS run's initial report (identity + structure)."""
-    return (isinstance(body, dict)
-            and body.get("report_id") == run["initial_report_id"]
-            and body.get("run_id") == run["run_id"]
-            and body.get("check_run_id") == run["initial_check_run_id"]
-            and body.get("dataset_revision_id") == run["dataset_revision_id"]
-            and body.get("completeness") in ("COMPLETE", "INCOMPLETE", "NO_CHECKS_SELECTED")
-            and isinstance(body.get("checks"), list) and isinstance(body.get("executions"), list))
+ORGANIZER_CHECK_IDS = {"ar_drop_by_product", "attribute_new_loss", "external_score_drift",
+                       "stop_factor_disappeared", "target_model_changed"}
+ROW_FIELDS = {"LABEL", "SOURCE", "ARGUMENT", "CNT", "TOTAL", "METRIC", "APP_IDS", "RESULT", "CONFIDENCE"}
+
+
+def report_problems(body, run, expected_check_ids=ORGANIZER_CHECK_IDS) -> list[str]:
+    """Why `body` is NOT a complete, well-formed initial report of `run` with exactly the expected checks (CR3 #1).
+    Empty list = valid. Validates identity, every execution record, every check row and their consistency."""
+    if not isinstance(body, dict):
+        return ["not an object"]
+    problems = []
+    for key, want in (("report_id", run["initial_report_id"]), ("run_id", run["run_id"]),
+                      ("check_run_id", run["initial_check_run_id"]),
+                      ("dataset_revision_id", run["dataset_revision_id"])):
+        if body.get(key) != want:
+            problems.append(f"{key}={body.get(key)!r} != {want!r}")
+    if body.get("completeness") != "COMPLETE":
+        problems.append(f"completeness={body.get('completeness')!r}")
+    executions, rows = body.get("executions"), body.get("checks")
+    if not isinstance(executions, list) or not isinstance(rows, list):
+        return problems + ["executions/checks are not lists"]
+    ids = []
+    for e in executions:
+        if not (isinstance(e, dict) and isinstance(e.get("execution_id"), str) and e["execution_id"]
+                and e.get("execution_status") == "SUCCEEDED" and isinstance(e.get("rows_count"), int)
+                and e["rows_count"] >= 0):
+            problems.append(f"bad execution record {str(e)[:120]}")
+            continue
+        ids.append(e.get("check_id"))
+    if sorted(ids) != sorted(expected_check_ids):
+        problems.append(f"executed checks {sorted(map(str, ids))} != expected {sorted(expected_check_ids)}")
+    if sum(e["rows_count"] for e in executions if isinstance(e, dict) and isinstance(e.get("rows_count"), int)) \
+            != len(rows):
+        problems.append("sum(rows_count) != number of check rows")
+    if not rows:
+        problems.append("no check rows")
+    for r in rows:
+        if not (isinstance(r, dict) and ROW_FIELDS <= set(r) and r["RESULT"] in ("PASS", "FAIL")
+                and r["SOURCE"] in ("BEFORE", "AFTER") and r["CONFIDENCE"] in ("HIGH", "LOW")
+                and isinstance(r["CNT"], int) and isinstance(r["TOTAL"], int) and isinstance(r["APP_IDS"], list)):
+            problems.append(f"bad check row {str(r)[:120]}")
+    return problems
 
 
 def test_not_ready_before_completion_and_status_stays_responsive(api_a, fixture_root):
@@ -161,12 +195,13 @@ def test_not_ready_before_completion_and_status_stays_responsive(api_a, fixture_
                                         "verify FR-017 - enlarge the dataset rather than skipping")
     assert api_a.get(f"/api/runs/{run_id}/summary").status_code == 200
     final_checks = api_a.get(f"/api/runs/{run_id}/checks")
-    assert final_checks.status_code == 200 and _is_initial_report(final_checks.json(), run), final_checks.text[:300]
+    assert final_checks.status_code == 200, final_checks.text[:300]
+    assert report_problems(final_checks.json(), run) == []
 
     # Every early 200 must be exactly the published initial report, else it is a real failure, not API-DISC-05.
     for stage, body in early:
         assert stage in ("CHECKING", "FINALIZING"), f"/checks answered 200 already in stage {stage}"
-        assert _is_initial_report(body, run) and body == final_checks.json(), (stage, str(body)[:300])
+        assert report_problems(body, run) == [] and body == final_checks.json(), (stage, str(body)[:300])
     known_defect(bool(early),
                  f"API-DISC-05: /runs/{{id}}/checks serves the (complete, correct) initial report while the Run is "
                  f"still {sorted({s for s, _ in early})}, before COMPLETED (FR-017, api.md not-ready)")
@@ -213,13 +248,23 @@ def test_invalid_json_fails_the_run(api_a, fixture_root):
 
 
 def test_failed_run_report_data_is_not_served_as_success(api_a, fixture_root):
-    """api.md: report data before ready / of a failed run -> explicit error, never an empty 'successful' table."""
+    """api.md: report data of a failed run -> explicit error, never an empty 'successful' table.
+    CR3 #3: same early-rejection policy as test_invalid_json_fails_the_run. If the backend rejects the invalid
+    input at registration or Run creation, no failed Run exists and this coverage is explicitly unavailable."""
     root, _ = fixture_root
     r = api_a.post("/api/datasets", {"name": "qa-badjson2", "root": root, "mode": "dirs",
                                      "before": "badjson/BEFORE", "after": "badjson/AFTER"}, key=None)
-    assert r.status_code == 201, r.text
-    final = api_a.wait(f"/api/runs/{api_a.start_run(api_a.config(r.json()['dataset_id'])['config_id']).json()['run_id']}")
-    assert final["status"] == "FAILED"
+    if r.status_code != 201:
+        assert_envelope(r, (409, 422))
+        pytest.skip("backend rejects invalid input at registration: failed-Run publication coverage unavailable "
+                    "- NOT VERIFIED")
+    accepted = api_a.start_run(api_a.config(r.json()["dataset_id"])["config_id"])
+    if accepted.status_code != 202:
+        assert_envelope(accepted, (409, 422))
+        pytest.skip("backend rejects invalid input at Run creation: failed-Run publication coverage unavailable "
+                    "- NOT VERIFIED")
+    final = api_a.wait(f"/api/runs/{accepted.json()['run_id']}")
+    assert final["status"] == "FAILED", (final["status"], final["stage"], final["error"])
     rep = final["initial_report_id"]
     for url in (f"/api/reports/{rep}/checks", f"/api/reports/{rep}/checks.html", f"/api/runs/{final['run_id']}/checks"):
         assert_envelope(api_a.get(url), (404, 409, 410, 422))
