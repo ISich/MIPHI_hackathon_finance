@@ -57,6 +57,18 @@ class RunService:
                            {"existing_id": row["result_id"]})
         return row["result_id"]
 
+    @staticmethod
+    def _decide_in_tx(con, owner_id: str, scope: str, key: str, body_hash: str) -> str | None:
+        """Inside BEGIN IMMEDIATE: replay id, raise 409 on a different body, or None to accept."""
+        row = con.execute("SELECT request_hash, result_id FROM idempotency WHERE owner_id=? AND scope=? AND key=?",
+                          (owner_id, scope, key)).fetchone()
+        if row is None:
+            return None
+        if row["request_hash"] != body_hash:
+            raise ApiError(409, "IDEMPOTENCY_KEY_REUSED", "This Idempotency-Key was already used with a different request",
+                           {"existing_id": row["result_id"]})
+        return row["result_id"]
+
     def _snapshot_script(self, owner_id: str, script_id: str, params_override: dict | None, dest: Path) -> dict:
         row = self.registry._script_row(owner_id, script_id)
         code = self.registry.script_code(row)
@@ -122,13 +134,24 @@ class RunService:
             shutil.rmtree(rdir, ignore_errors=True)
             raise
         ts = now()
-        with self.db.tx() as con:
-            if idem_key:
-                again = con.execute("SELECT result_id FROM idempotency WHERE owner_id=? AND scope='runs' AND key=?",
-                                    (owner_id, idem_key)).fetchone()
-                if again is not None:  # lost a race with an identical request
-                    shutil.rmtree(rdir, ignore_errors=True)
-                    return self.get_run(owner_id, again[0]), True
+        replay = None
+        try:
+            with self.db.tx() as con:
+                replay = self._decide_in_tx(con, owner_id, "runs", idem_key, body_hash)
+                if replay is None:
+                    self._insert_run_tx(con, owner_id, config_id, dataset, revision, run_id, cr_id, report_id,
+                                        procs, checks, idem_key, body_hash, ts)
+        except BaseException:
+            shutil.rmtree(rdir, ignore_errors=True)
+            raise
+        if replay is not None:  # lost the race to an identical request
+            shutil.rmtree(rdir, ignore_errors=True)
+            return self.get_run(owner_id, replay), True
+        return self.get_run(owner_id, run_id), False
+
+    def _insert_run_tx(self, con, owner_id, config_id, dataset, revision, run_id, cr_id, report_id, procs, checks,
+                       idem_key, body_hash, ts) -> None:
+        if True:
             con.execute("""INSERT INTO runs(run_id, owner_id, config_id, dataset_id, dataset_revision_id, status,
                            initial_check_run_id, initial_report_id, created_at) VALUES (?,?,?,?,?,?,?,?,?)""",
                         (run_id, owner_id, config_id, dataset["dataset_id"], revision["revision_id"], "QUEUED",
@@ -144,7 +167,6 @@ class RunService:
             con.execute("INSERT INTO jobs(kind, ref_id, status, created_at) VALUES ('DATA_RUN', ?, 'QUEUED', ?)", (run_id, ts))
             con.execute("INSERT INTO idempotency VALUES (?,?,?,?,?,?)", (owner_id, "runs", idem_key, body_hash, run_id, ts))
             append_event(con, run_id, "INFO", f"Run accepted: {len(procs)} procedures, {len(checks)} checks snapshotted")
-        return self.get_run(owner_id, run_id), False
 
     def _run_row(self, owner_id: str, run_id: str) -> dict:
         row = self.db.one("SELECT * FROM runs WHERE run_id = ? AND owner_id = ?", (run_id, owner_id))
@@ -253,7 +275,22 @@ class RunService:
             shutil.rmtree(dest, ignore_errors=True)
             raise
         ts = now()
-        with self.db.tx() as con:
+        replay = None
+        try:
+            with self.db.tx() as con:
+                replay = self._decide_in_tx(con, owner_id, f"check-runs:{run_id}", idem_key, body_hash)
+                if replay is None:
+                    self._insert_check_run_tx(con, owner_id, run_id, cr_id, report_id, selected, idem_key, body_hash, ts)
+        except BaseException:
+            shutil.rmtree(dest, ignore_errors=True)
+            raise
+        if replay is not None:
+            shutil.rmtree(dest, ignore_errors=True)
+            return self.get_check_run(owner_id, replay), True
+        return self.get_check_run(owner_id, cr_id), False
+
+    def _insert_check_run_tx(self, con, owner_id, run_id, cr_id, report_id, selected, idem_key, body_hash, ts) -> None:
+        if True:
             con.execute("INSERT INTO check_runs(check_run_id, run_id, owner_id, report_id, initial, status, selected_json, created_at)"
                         " VALUES (?,?,?,?,?,?,?,?)", (cr_id, run_id, owner_id, report_id, 0, "QUEUED", dumps(selected), ts))
             con.execute("INSERT INTO reports(report_id, run_id, check_run_id, owner_id, status, created_at) VALUES (?,?,?,?,?,?)",
@@ -262,7 +299,6 @@ class RunService:
             con.execute("INSERT INTO idempotency VALUES (?,?,?,?,?,?)",
                         (owner_id, f"check-runs:{run_id}", idem_key, body_hash, cr_id, ts))
             append_event(con, run_id, "INFO", f"Check run accepted with {len(selected)} checks", check_run_id=cr_id)
-        return self.get_check_run(owner_id, cr_id), False
 
     def _check_run_row(self, owner_id: str, cr_id: str) -> dict:
         row = self.db.one("SELECT * FROM check_runs WHERE check_run_id = ? AND owner_id = ?", (cr_id, owner_id))
