@@ -35,7 +35,20 @@ export DD_RUN_TIMEOUT_SECONDS="${DD_RUN_TIMEOUT_SECONDS:-120}" DD_CHECK_TIMEOUT_
 ( cd "$WORK" && exec "$BACKEND_PY" -m uvicorn dd_backend.app:create_app --factory --host 127.0.0.1 \
     --port "$PORT" --app-dir "$BACKEND_DIR" >"$WORK/server.log" 2>&1 ) &
 PID=$!
-cleanup() { kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; echo "server log: $WORK/server.log"; }
+# CR5 #4: bounded shutdown - SIGTERM, grace period QA_STOP_TIMEOUT (default 10 s), then SIGKILL and reap.
+cleanup() {
+  if kill -0 "$PID" 2>/dev/null; then
+    kill -TERM "$PID" 2>/dev/null || true
+    local stop_deadline=$((SECONDS + ${QA_STOP_TIMEOUT:-10}))
+    while kill -0 "$PID" 2>/dev/null && [ "$SECONDS" -lt "$stop_deadline" ]; do sleep 0.2; done
+    if kill -0 "$PID" 2>/dev/null; then
+      echo "backend pid $PID ignored SIGTERM for ${QA_STOP_TIMEOUT:-10}s; sending SIGKILL" >&2
+      kill -KILL "$PID" 2>/dev/null || true
+    fi
+  fi
+  wait "$PID" 2>/dev/null || true
+  echo "server log: $WORK/server.log"
+}
 trap cleanup EXIT
 # CR3 #6: every request has connect/total deadlines and the whole startup has an overall deadline.
 STARTUP_TIMEOUT="${QA_STARTUP_TIMEOUT:-60}"
