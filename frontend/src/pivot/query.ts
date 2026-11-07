@@ -1,4 +1,4 @@
-import type { PivotFilter } from "../api/types";
+import type { PivotFilter, PivotRequest } from "../api/types";
 
 export interface PivotState {
   rows: string[];
@@ -14,7 +14,17 @@ export function parsePivotQuery(q: URLSearchParams): PivotState {
     if (k.startsWith("f.")) filters.push({ dim: k.slice(2), op: "in", values: v.split("|") });
   });
   const rows = list("rows");
-  return { rows: rows.length ? rows : ["DIFF_FLAG"], cols: list("cols"), filters };
+  const cols = list("cols");
+  return { rows: rows.length || cols.length ? rows : ["DIFF_FLAG"], cols, filters };
+}
+
+/** Only PivotQuery fields cross the API boundary; axes/report live in the URL. */
+export function pivotRequest(s: PivotState, offset = 0): PivotRequest {
+  return {
+    dimensions: [...new Set([...s.rows, ...s.cols])],
+    filters: Object.fromEntries(s.filters.map(f => [f.dim, f.op === "eq" ? f.values[0] : f.values])),
+    limit: 100, offset,
+  };
 }
 
 export function pivotQuery(s: PivotState): string {

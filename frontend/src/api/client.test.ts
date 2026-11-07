@@ -36,7 +36,7 @@ describe("ApiClient errors", () => {
 
   it("marks 501 ANALYTICS_UNAVAILABLE as unavailable", async () => {
     const { f } = fakeFetch(501, { code: "ANALYTICS_UNAVAILABLE", message: "not implemented", details: {}, request_id: "x" });
-    const err: ApiError = await new ApiClient(f).pivot("r", { rows: [], cols: [], filters: [] }).catch((e) => e);
+    const err: ApiError = await new ApiClient(f).pivot("r", { dimensions: ["PATH"], filters: {} }).catch((e) => e);
     expect(err.isUnavailable).toBe(true);
   });
 

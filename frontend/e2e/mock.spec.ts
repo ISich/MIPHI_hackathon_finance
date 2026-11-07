@@ -14,16 +14,15 @@ async function startRun(page: Page) {
   await expect(page.getByText("Run completed (MOCK)")).toBeVisible();
 }
 
-test("configuration → monitor → summary → pivot fallback → drill-down → application → checks", async ({ page }, info) => {
+test("configuration → monitor → summary → pivot → drill-down → application → checks", async ({ page }, info) => {
   await startRun(page);
   await page.getByRole("link", { name: "Сводка" }).click();
   await expect(page.getByTestId("tile-total")).toContainText("6");
 
   await page.getByRole("link", { name: "Сводная (pivot)" }).click();
-  await expect(page.getByTestId("pivot-unavailable")).toContainText("ANALYTICS_UNAVAILABLE");
-  const facts = page.getByRole("table", { name: "Базовые факты" });
+  const facts = page.getByRole("table", { name: "Сводная таблица" });
   await facts.getByRole("link").first().click();
-  await expect(page.getByTestId("group-total")).toContainText("полный distinct total backend не сообщает");
+  await expect(page.getByTestId("group-total")).toContainText("Всего различных заявок");
   await page.getByRole("link", { name: /^MOCK-/ }).first().click();
   await expect(page.getByRole("table", { name: "Сравнение атрибутов" })).toBeVisible();
 

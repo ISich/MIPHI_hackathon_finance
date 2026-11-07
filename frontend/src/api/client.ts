@@ -69,7 +69,7 @@ export class ApiError extends Error {
   }
   /** Feature not implemented by the analytics core yet (501). */
   get isUnavailable(): boolean {
-    return this.code === CODES.ANALYTICS_UNAVAILABLE || this.status === 501;
+    return this.status === 501;
   }
 }
 

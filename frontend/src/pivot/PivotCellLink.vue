@@ -4,5 +4,5 @@ defineProps<{ cell?: { count: number; group: string }; drill: (group: string) =>
 
 <template>
   <a v-if="cell && cell.count > 0" :href="drill(cell.group)" title="Открыть заявки группы">{{ cell.count }}</a>
-  <span v-else class="muted">0</span>
+  <span v-else class="muted">{{ cell ? cell.count : "—" }}</span>
 </template>

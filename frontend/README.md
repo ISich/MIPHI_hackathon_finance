@@ -39,7 +39,7 @@ cd backend && .venv/bin/python -m dd_backend serve --host 127.0.0.1 --port 8000
 - **Новый запуск** `#/runs/new` — набор данных, процедура по каждому слоту (встроенная или сохранённый workspace/.py скрипт), проверки → `POST /api/configurations` → `POST /api/runs` с `Idempotency-Key` (повтор той же формы не создаёт дубль Run).
 - **Run** `#/runs/{id}` — мониторинг: status/stage/substep, прогресс (при неизвестном total — неопределённый, без выдуманного %), журнал `events?after=`, код фактически исполненного snapshot по слоту. Вкладки отчёта доступны только после `COMPLETED`.
   - **Сводка** — числа из `GET /summary` этого Run, полнота checks, артефакты.
-  - **Сводная** — раскладка/фильтры в URL, `POST /pivot` (server rollup, opaque group locators). Пока backend отвечает `501 ANALYTICS_UNAVAILABLE`, UI честно показывает причину и переходит на базовые факты D4 (`/pivot-facts`, CNT без суммирования) с drill-down `/pivot-facts/applications`.
+  - **Сводная** — раскладка/фильтры в URL. В `POST /pivot` отправляются `dimensions` из обеих осей, объект `filters` и `limit/offset`. Таблица строится из `items.dimensions/cnt`, drill-down использует `group_locator`. Итоги не суммируются, страницы переключаются явно. HTTP 4xx показываются как ошибки; только HTTP 501 включает совместимость с базовыми фактами D4.
   - **Проверки** — конкретный `report_id` (по умолчанию `initial_report_id`, никогда не «latest»); PASS/FAIL, приглушённый LOW, «исполнена, 0 строк» отдельно от PASS, ошибки исполнения (ERROR/TIMEOUT/INVALID_OUTPUT/…) отдельно от FAIL; K примеров APP_ID подписаны «K из CNT»; скачивание HTML.
   - **Новая проверка** — контракт/шаблон/пример из `GET /script-kinds`, редактор или загрузка `.py` → snapshot (`POST /scripts` или multipart `POST /scripts/upload`) → `POST /runs/{id}/check-runs` (исходные проверки + новая) → polling → открывается **новый** report_id. В режиме `builtin-only` backend отвечает `403 CUSTOM_EXECUTION_DISABLED` — UI показывает причину; режим сервера виден заранее.
 - **Рабочая область** `#/scripts` — скрипты всех kind, просмотр кода, создание изменённой копии/нового скрипта для слота процедуры или проверки.
@@ -65,6 +65,6 @@ npm run check:openapi -- http://127.0.0.1:8000/openapi.json   # маршруты
 
 ## Ограничения
 
-- Server pivot rollup / group locators / полный distinct total при drill-down зависят от D4; сейчас backend отдаёт 501 и drill-down без полного total — UI это показывает, а не подменяет.
+- Текущий pivot API возвращает counts отдельных групп и пагинацию, без итогов по осям. Прочерк в таблице означает отсутствие ячейки на текущей странице. Фактическое evidence и ограничения real E2E: [UI_PIVOT_EVIDENCE.md](UI_PIVOT_EVIDENCE.md).
 - Редактор — простой `<textarea>` (Tab = 4 пробела), не Monaco и не notebook.
 - Пагинация списка Run — первые 50 (по умолчанию backend).

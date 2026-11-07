@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from "vue";
 import { api } from "../api/instance";
-import type { Run, RunEvent } from "../api/types";
+import type { Run, RunEvent, Report } from "../api/types";
 import ChecksView from "../checks-report/ChecksView.vue";
 import ErrorView from "../components/ErrorView.vue";
 import LoadingView from "../components/LoadingView.vue";
@@ -23,12 +23,13 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
-/** Run monitor + report tabs. Polls status and events with ?after=seq while the Run is active. */
+/** Run monitor + report tabs. Terminal Runs may still receive CheckRun events. */
 const props = defineProps<{ runId: string; tab?: string; query: URLSearchParams }>();
 
 const run = shallowRef<Run | undefined>();
 const error = ref<unknown>(null);
 const events = shallowRef<RunEvent[]>([]);
+const reports = shallowRef<Report[]>([]);
 // Default tab: summary only if the Run was already finished when opened; a Run
 // watched live stays on the monitor when it completes.
 const openedCompleted = ref<boolean | null>(null);
@@ -42,44 +43,44 @@ watch(
     run.value = undefined;
     error.value = null;
     events.value = [];
+    reports.value = [];
     openedCompleted.value = null;
-    backlog.value = false;
     lastSeq = 0;
   },
 );
 
-const backlog = ref(false);
-const active = computed(() => !run.value || run.value.status === "QUEUED" || run.value.status === "RUNNING" || backlog.value);
 usePolling(
-  () => active.value && !(error.value && !run.value),
-  () => timing.runPollMs,
+  () => !(error.value && !run.value),
+  () => run.value?.status === "COMPLETED" ? timing.listPollMs : timing.runPollMs,
   async () => {
     const id = props.runId;
     try {
       // Status first, then the whole event backlog: once a terminal status is
       // seen, the events drained afterwards contain the final ones, and polling
-      // stops only after the journal is read to the end (it may span many pages).
+      // continues for check-only jobs after the data Run completes.
       const r = await api.run(id);
       if (props.runId !== id) return; // stale: user switched Run
+      if (r.status === "COMPLETED") {
+        const list = await api.reports(id);
+        if (props.runId !== id) return;
+        reports.value = list.items;
+      }
       const fresh: RunEvent[] = [];
       let after = lastSeq;
-      let drained = false;
       for (let page = 0; page < MAX_EVENT_PAGES_PER_TICK; page++) {
         const ev = await api.events(id, after);
         if (props.runId !== id) return;
         if (!ev.items.length) {
-          drained = true;
           break;
         }
         fresh.push(...ev.items);
         const next = Math.max(ev.next_after, ...ev.items.map((e) => e.seq));
         if (next <= after) {
-          drained = true; // backend did not advance: avoid a tight loop
+          // Backend did not advance: avoid a tight loop.
           break;
         }
         after = next;
       }
-      backlog.value = !drained; // cap reached: keep polling until the journal is read
       run.value = r;
       if (openedCompleted.value === null) openedCompleted.value = r.status === "COMPLETED";
       error.value = null;
@@ -124,6 +125,11 @@ const selected = computed<Tab>(
       <PivotView v-else-if="selected === 'pivot'" :run="run" :query="query" />
       <ChecksView v-else-if="selected === 'checks'" :run="run" :report-id="query.get('report')" />
       <NewCheck v-else :run="run" />
+      <ul v-if="selected === 'monitor' && reports.length" aria-label="Отчёты запуска">
+        <li v-for="report in reports" :key="report.report_id">
+          <a :href="`${href('runs', runId, 'checks')}?report=${encodeURIComponent(report.report_id)}`">{{ report.report_id }} — {{ report.status }}</a>
+        </li>
+      </ul>
     </template>
   </section>
 </template>

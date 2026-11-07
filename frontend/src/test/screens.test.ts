@@ -70,7 +70,19 @@ describe("Run monitor", () => {
 });
 
 describe("Run journal longer than one events page", () => {
-  it("drains the whole event backlog before polling stops at a terminal status", async () => {
+  it("receives late check events and the published report in an already-open terminal monitor", async () => {
+    const run = await completedRun();
+    const w = mnt(RunPage, { runId: run.run_id, tab: "monitor", query: new URLSearchParams() });
+    await waitFor(() => expect(byTestId(w, "run-status").textContent).toBe("COMPLETED"));
+    const cfg = await testApi.configuration(run.config_id);
+    let cr = await testApi.createCheckRun(run.run_id, { checks: cfg.checks }, "late-check");
+    for (let i = 0; i < 10 && cr.status !== "COMPLETED"; i++) cr = await testApi.checkRun(cr.check_run_id);
+    expect(cr.status).toBe("COMPLETED");
+    await waitFor(() => expect(table(w, "Журнал событий").textContent).toContain("executed (MOCK)"));
+    await waitFor(() => expect(link(w, new RegExp(cr.report_id)).textContent).toContain("PUBLISHED"));
+    w.unmount();
+  });
+  it("drains the whole event backlog at a terminal status", async () => {
     resetMock({ eventsPageLimit: 3, extraEventsPerStage: 8 });
     const cfg = await testApi.createConfiguration({ name: "t", dataset_id: "ds_mock_examples", slots: {} });
     const run = await testApi.createRun({ configuration_id: cfg.config_id }, "k-long");
@@ -138,6 +150,7 @@ describe("Explicit report context survives navigation", () => {
   });
 
   it("base-facts drill-down keeps ?report= on the way back", async () => {
+    resetMock({ serverPivot: false });
     const run = await completedRun();
     const w = mnt(PivotView, { run, query: new URLSearchParams("report=rep_X") });
     const t = await waitFor(() => table(w, "Базовые факты"));
@@ -310,7 +323,53 @@ describe("New check", () => {
 });
 
 describe("Pivot", () => {
+  it("maps sparse items with null/empty coordinates and pages without inventing zeroes", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => {
+      if (!url.endsWith("/pivot")) return inner(url, init);
+      const req = JSON.parse(String(init!.body));
+      const items = req.offset === 0 ? [
+        { dimensions: { PATH: null, SOURCE: "BEFORE" }, cnt: 7, group_locator: "opaque.1" },
+        { dimensions: { PATH: "", SOURCE: "AFTER" }, cnt: 3, group_locator: "opaque.2" },
+      ] : [{ dimensions: { PATH: "last", SOURCE: "AFTER" }, cnt: 2, group_locator: "opaque.3" }];
+      return new Response(JSON.stringify({ run_id: run.run_id, data_revision: run.dataset_revision_id, items, total: 101, limit: 100, offset: req.offset }), { status: 200 });
+    };
+    const w = mnt(PivotView, { run, query: new URLSearchParams("rows=PATH&cols=SOURCE&report=rep_ctx") });
+    const t = await waitFor(() => table(w, "Сводная таблица"));
+    expect([...t.querySelectorAll("a")].map(a => a.textContent)).toEqual(["7", "3"]);
+    expect(t.textContent).toContain("∅ (пусто)");
+    expect(t.querySelectorAll("td .muted")).toHaveLength(2);
+    expect(t.textContent).not.toContain("Итого");
+    await click(button(w, "Далее →"));
+    await waitFor(() => expect(table(w, "Сводная таблица").textContent).toContain("last"));
+    const calls = holder.calls.filter(c => c.url.endsWith("/pivot"));
+    expect(JSON.parse(String(calls.at(-1)!.init!.body))).toEqual({ dimensions: ["PATH", "SOURCE"], filters: {}, limit: 100, offset: 100 });
+    await w.setProps({ query: new URLSearchParams("rows=SOURCE") } as never);
+    await waitFor(() => expect(JSON.parse(String(holder.calls.filter(c => c.url.endsWith("/pivot")).at(-1)!.init!.body)).offset).toBe(0));
+    w.unmount();
+  });
+  it("shows 422 with its details and never presents it as unavailable or empty success", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => url.endsWith("/pivot")
+      ? new Response(JSON.stringify({ code: "VALIDATION_ERROR", message: "Bad dimensions", details: { field: "dimensions" }, request_id: "req-422" }), { status: 422 })
+      : inner(url, init);
+    const w = mnt(PivotView, { run, query: new URLSearchParams() });
+    await waitFor(() => expect(alertEl(w).textContent).toContain("HTTP 422"));
+    expect(text(w)).toContain("req-422");
+    expect(text(w)).toContain("dimensions");
+    expect(w.find('[data-testid="pivot-unavailable"]').exists()).toBe(false);
+    expect(w.find('table').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("rejects the old rows/cols payload in the contract mock", async () => {
+    const run = await completedRun();
+    await expect(testApi.request("POST", `/api/runs/${run.run_id}/pivot`, { body: { rows: ["PATH"], cols: [], filters: [] } })).rejects.toMatchObject({ status: 422 });
+  });
   it("shows the honest 501 reason and falls back to D4 base facts without totals", async () => {
+    resetMock({ serverPivot: false });
     const run = await completedRun();
     const w = mnt(PivotView, { run, query: new URLSearchParams("rows=PATH") });
     await waitFor(() => expect(byTestId(w, "pivot-unavailable").textContent).toContain("ANALYTICS_UNAVAILABLE"));
@@ -322,15 +381,14 @@ describe("Pivot", () => {
     w.unmount();
   });
 
-  it("with a server rollup: renders distinct counts/totals from the server and links cells via opaque locators", async () => {
+  it("renders distinct cell counts from the server and links cells via opaque locators", async () => {
     resetMock({ serverPivot: true });
     const run = await completedRun();
     const w = mnt(PivotView, { run, query: new URLSearchParams("rows=PATH&cols=SOURCE&f.DIFF_FLAG=1") });
     const t = await waitFor(() => table(w, "Сводная таблица"));
     const req = holder.calls.find((c) => c.url.endsWith("/pivot"))!;
-    expect(JSON.parse(String(req.init!.body))).toMatchObject({ rows: ["PATH"], cols: ["SOURCE"], filters: [{ dim: "DIFF_FLAG", op: "in", values: ["1"] }] });
-    // grand total = distinct apps with any diff (4), not the sum of cells
-    expect(t.querySelector('[data-testid="grand-total"]')!.textContent).toContain("4");
+    expect(JSON.parse(String(req.init!.body))).toEqual({ dimensions: ["PATH", "SOURCE"], filters: { DIFF_FLAG: ["1"] }, limit: 100, offset: 0 });
+    expect(t.textContent).not.toContain("Итого");
     expect(t.querySelector("a")!.getAttribute("href")).toMatch(new RegExp(`#/runs/${run.run_id}/groups/[^?]+\\?back=`));
     w.unmount();
   });
@@ -348,9 +406,9 @@ describe("Pivot", () => {
   it("drill-down page shows the full distinct total, not the page length", async () => {
     resetMock({ serverPivot: true });
     const run = await completedRun();
-    const p = await testApi.pivot(run.run_id, { rows: [], cols: [], filters: [] });
-    const w = mnt(GroupApplications, { runId: run.run_id, group: p.grand_total.group, back: "rows=PATH" });
-    await waitFor(() => expect(byTestId(w, "group-total").textContent).toContain("Всего различных заявок: 6"));
+    const p = await testApi.pivot(run.run_id, { dimensions: ["SOURCE"], filters: {} });
+    const w = mnt(GroupApplications, { runId: run.run_id, group: p.items[0]!.group_locator, back: "rows=PATH" });
+    await waitFor(() => expect(byTestId(w, "group-total").textContent).toContain(`Всего различных заявок: ${p.items[0]!.cnt}`));
     expect(link(w, /К сводной/).getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?rows=PATH`);
     w.unmount();
   });

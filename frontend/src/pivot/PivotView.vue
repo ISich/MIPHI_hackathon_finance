@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { ApiError } from "../api/client";
 import { api } from "../api/instance";
 import type { PivotResponse, Run } from "../api/types";
@@ -9,28 +9,25 @@ import { href, navigate } from "../router";
 import BaseFactsView from "./BaseFactsView.vue";
 import PivotControls from "./PivotControls.vue";
 import PivotTable from "./PivotTable.vue";
-import { parsePivotQuery, pivotQuery, type PivotState } from "./query";
+import { parsePivotQuery, pivotQuery, pivotRequest, type PivotState } from "./query";
 
 const props = defineProps<{ run: Run; query: URLSearchParams }>();
 const state = computed(() => parsePivotQuery(props.query));
 const qs = computed(() => pivotQuery(state.value));
 const reportCtx = computed(() => props.query.get("report"));
+const offset = ref(0);
+watch(() => `${props.run.run_id}:${qs.value}`, () => { offset.value = 0; }, { flush: "sync" });
 const pivot = useApi(
-  () => `pivot:${props.run.run_id}:${qs.value}`,
+  () => `pivot:${props.run.run_id}:${qs.value}:${offset.value}`,
   () =>
-    api.pivot(props.run.run_id, {
-      rows: state.value.rows,
-      cols: state.value.cols,
-      filters: state.value.filters,
-      report_id: reportCtx.value ?? props.run.initial_report_id,
-    }),
+    api.pivot(props.run.run_id, pivotRequest(state.value, offset.value)),
 );
 const unavailable = computed(() => (pivot.error instanceof ApiError && pivot.error.isUnavailable ? pivot.error : null));
 const go = (s: PivotState) =>
   navigate(`${href("runs", props.run.run_id, "pivot")}?${pivotQuery(s)}${reportCtx.value ? `&report=${encodeURIComponent(reportCtx.value)}` : ""}`);
 /** Back-query for drill-down: layout + explicit report context. */
 const backQuery = computed(() => (reportCtx.value ? `${qs.value}${qs.value ? "&" : ""}report=${encodeURIComponent(reportCtx.value)}` : qs.value));
-const isEmpty = (d: PivotResponse) => d.cells.length === 0 && d.grand_total.count === 0;
+const isEmpty = (d: PivotResponse) => d.total === 0;
 const checksHref = computed(() => `${href("runs", props.run.run_id, "checks")}?report=${encodeURIComponent(reportCtx.value ?? "")}`);
 </script>
 
@@ -54,7 +51,12 @@ const checksHref = computed(() => `${href("runs", props.run.run_id, "checks")}?r
       <PivotControls :state="state" @change="go" />
       <AsyncView :value="pivot" what="Расчёт сводной на сервере" :is-empty="isEmpty" empty="Нет данных для выбранных фильтров.">
         <template #default="{ data }">
-          <PivotTable v-if="data.run_id === run.run_id" :data="data" :run-id="run.run_id" :back-query="backQuery" />
+          <PivotTable v-if="data.run_id === run.run_id" :data="data" :rows="state.rows" :cols="state.cols" :run-id="run.run_id" :back-query="backQuery" />
+          <div class="pager">
+            <button :disabled="offset === 0" @click="offset = Math.max(0, offset - data.limit)">← Назад</button>
+            <span>Группы {{ offset + 1 }}–{{ offset + data.items.length }} из {{ data.total }}</span>
+            <button :disabled="offset + data.limit >= data.total" @click="offset += data.limit">Далее →</button>
+          </div>
         </template>
       </AsyncView>
     </template>
