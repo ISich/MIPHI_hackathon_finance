@@ -10,7 +10,8 @@ Mutations:
                               reused for every later request carrying the same header value
   lie_mode_builtin          - /api/session reports execution_mode=builtin-only although the server is
                               trusted-local (custom code really executes)
-  stuck_running             - GET /api/runs/{id} always reports status RUNNING / stage NORMALIZING
+  stuck_running             - a Run that never finishes but keeps answering: GET /api/runs/{id} reports
+                              RUNNING/NORMALIZING and /summary, /checks answer 409 NOT_READY
   checks_garbage_while_running - while the upstream Run is in CHECKING/FINALIZING (not final),
                               /runs/{id}/checks answers 200 {} (malformed early report)
   shared_owner_for_query    - pivot / pivot-facts/applications / groups/{g}/applications ignore the caller's
@@ -82,6 +83,9 @@ def make_proxy(upstream: str, mutations: set[str]) -> ThreadingHTTPServer:
             if "summary_200_while_running" in mutations and resp.status_code == 409 and \
                     re.fullmatch(r"/api/runs/[^/]+/(summary|checks)", path.split("?")[0]):
                 return self._json(200, {})
+            if "stuck_running" in mutations and re.fullmatch(r"/api/runs/[^/]+/(summary|checks)", path.split("?")[0]):
+                return self._json(409, {"code": "NOT_READY", "message": "not ready", "details": {},
+                                        "request_id": "x"})
             if "stuck_running" in mutations and resp.status_code == 200 and re.fullmatch(r"/api/runs/[^/]+",
                                                                                           path.split("?")[0]):
                 data = resp.json()
