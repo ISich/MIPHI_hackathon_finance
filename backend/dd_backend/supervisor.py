@@ -89,8 +89,11 @@ def main() -> int:
         stop["flag"] = True
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, request_stop)
+    # Worker defers stop signals across exec so startup cannot be interrupted before
+    # these handlers exist. Pending signals now set stop instead of killing us.
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGHUP})
     rc: int | None = None
-    if os.getppid() == worker_pid:  # worker may have died before PDEATHSIG was armed
+    if os.getppid() == worker_pid and not stop["flag"]:  # worker may have died before PDEATHSIG was armed
         # Handshake: publish our identity BEFORE any child exists. Recovery treats a present
         # ".started" without ".contained" as "must be verified" (fail closed), so there is no window
         # in which an execution runs while nobody knows which process contains it.

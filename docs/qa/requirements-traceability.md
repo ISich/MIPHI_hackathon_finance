@@ -1,5 +1,7 @@
 # Матрица трассировки: требования → тесты → статус
 
+> **Статус документа (сверено с `main` @ 010f42a, 07.11.2026):** это зафиксированный срез прогона на backend `eb0053f` / QA `cddd1a7`, полностью **не перепрогонялся** на текущем `main`. После него в `main` влиты: валидация вывода процедур (`OUTPUT_SCHEMA_INVALID`, PR #7, [backend-output-validation-review.md](backend-output-validation-review.md)) и исправление гонки старта supervisor при остановке (PR #8, [backend-shutdown-recovery-review.md](backend-shutdown-recovery-review.md)); ядро по-прежнему 421da26. Backend, frontend и QA теперь в одном репозитории (`backend/`, `frontend/`, `tests/`). UI по-прежнему не верифицирован; известно, что вкладка «Сводная» UI не согласована со схемой `POST /pivot` (422, см. `frontend/README.md`). Для статусов на текущем SHA — перепрогнать набор.
+
 Ночь/день 07.11.2026, night-qa. Проверялся **актуальный код**, не документы. Статусы ниже относятся **только** к этому сочетанию SHA (прогон 17:34 МСК, после исправлений по Codex CR #1–#5):
 
 - QA-ветка: `test/contracts-night` @ `cddd1a7` (+ последующий docs-коммит);

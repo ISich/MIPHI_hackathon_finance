@@ -26,6 +26,7 @@ python3 -m venv .venv                     # if ensurepip is missing: python3 -m 
 .venv/bin/python -m pip install -r requirements-dev.txt -e .   # exact versions: requirements.lock
 # after changing CORE_COMMIT: .venv/bin/python -m pip install --force-reinstall --no-deps -r requirements.txt
 scripts/fetch_core.sh                      # read-only checks/, examples/, tests/ of the pinned core commit -> .core/<sha>/
+                                           #   (git fetch from origin = ISich/MIPHI_hackathon_finance, branch SomeShit)
 ```
 
 `fetch_core.sh` uses `git archive` of the pinned commit from this repo's `origin`; nothing is copied into
@@ -156,10 +157,11 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 `GET /api/datasets/{dataset_id}/table?side=before|after` exposes a read-only table of the current source JSON files for the UI table workspace. Access follows existing dataset ownership/shared rules. The response includes `dataset_id`, `side`, `columns`, and scalar `rows`; nested objects use JSON Pointer paths, nested arrays remain JSON text, and `_file` identifies the source. A root array yields one row per element. The endpoint rejects invalid/non-finite JSON and returns 413 rather than a partial snapshot when the complete selection exceeds 10 MiB, 20,000 rows or 200 columns. It reuses allowlisted path validation and bounded regular-file reads. Editing the resulting browser copy does not write to the dataset or create a run/revision.
 
 Envelope for every error: `{code, message, details, request_id}`; `x-request-id` header on every response.
-Codes: 202 accepted run/check-run · 400 `IDEMPOTENCY_KEY_REQUIRED` · 403 `CUSTOM_EXECUTION_DISABLED` /
-read-only · 404 `NOT_FOUND` (also for other owners' IDs — existence is not leaked) · 409 `NOT_READY` /
-`IDEMPOTENCY_KEY_REUSED` · 413 · 422 `VALIDATION_ERROR` and specific dataset/script codes · 501
-`ANALYTICS_UNAVAILABLE` · 503 `/ready` not ready.
+Codes: 202 accepted run/check-run · 400 `IDEMPOTENCY_KEY_REQUIRED` / `IDEMPOTENCY_KEY_INVALID` / unknown `Host` ·
+403 `CUSTOM_EXECUTION_DISABLED` / `DATASET_READ_ONLY` / `SCRIPT_READ_ONLY` / `ORIGIN_NOT_ALLOWED` · 404 `NOT_FOUND`
+(also for other owners' IDs — existence is not leaked) · 409 `NOT_READY` / `IDEMPOTENCY_KEY_REUSED` /
+`SCRIPT_CONFLICT` / `ANALYTICS_UNAVAILABLE` · 413 `PAYLOAD_TOO_LARGE` / `CODE_TOO_LARGE` · 422 `VALIDATION_ERROR`,
+`PIVOT_QUERY_INVALID`, `PARAMS_INVALID` and specific dataset/script codes · 503 `BUILTIN_UNAVAILABLE`, `/ready` not ready.
 
 - `POST /api/runs` requires `Idempotency-Key`; same key + same body (per session owner) returns the same run
   with `Idempotent-Replay: true`; same key + other body → 409. Same for `POST /api/runs/{id}/check-runs`.
@@ -224,6 +226,18 @@ Setting the removed `DD_ALLOWED_ORIGINS` is a startup error.
   Dataset registration hashes regular files only, via non-blocking descriptors with bounded reads.
   Inputs are read once (no symlink, real path inside the root), and the fingerprinted bytes are the ones parsed.
   A run refuses to execute when the installed core differs from the accepted snapshot (`CORE_VERSION_MISMATCH`).
+  The worker starts the supervisor with TERM/INT/HUP blocked; the supervisor installs its stop handlers before
+  unblocking them, so a shutdown signal that arrives during startup still ends in containment + marker
+  (`FAILED`/`RUN_INTERRUPTED`), never in a blocked queue. A pending stop prevents user code from being launched.
+
+## Procedure output validation
+
+Between stages the pipeline validates every procedure's output with the pinned core validators
+(`validate_normalized`, `validate_comparison`, `validate_segment`): application identity, expected `SOURCE`,
+unique keys, required field types and decision/diff consistency — **before** any artifact is written. A violation
+fails the run with `OUTPUT_SCHEMA_INVALID` and the procedure context. The aggregate procedure is checked only for
+its shape (`{'pivot_facts': [...], 'summary': {...}}` with the required summary keys); business logic of custom
+procedures is not validated.
 
 ## Analytics (D4 ports of the pinned core)
 
@@ -236,7 +250,10 @@ Setting the removed `DD_ALLOWED_ORIGINS` is a startup error.
 - `GET /api/runs/{id}/pivot-facts` and `POST /api/runs/{id}/pivot-facts/applications` → `ReportService`
   (pages with `total`, limit ≤ 500). Unknown dimensions/filters/paging → 422 `PIVOT_QUERY_INVALID`.
 - Runs produced before BaseFacts existed answer 409 `ANALYTICS_UNAVAILABLE` for pivot.
+- `GET /api/runs/{id}/applications/{app_id}` → application card of this run.
 
 ## Known gaps
+- The UI (`frontend/`) still sends the old pivot request shape (`rows/cols/filters[]/report_id`) to
+  `POST /api/runs/{id}/pivot`, which this API rejects with 422 `VALIDATION_ERROR`; see `frontend/README.md`.
 - No resume of interrupted runs (they are failed deterministically); no cancel endpoint.
 - Run directories are kept until removed manually (`$DD_HOME/runs/<run_id>`).

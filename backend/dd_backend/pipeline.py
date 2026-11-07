@@ -24,8 +24,6 @@ from typing import Any, Callable
 
 from .registry import COMPARISON_COLUMNS, NORMALIZED_COLUMNS, PIVOT_COLUMNS, SEGMENT_COLUMNS
 
-CHANGE_TYPES = {"SAME", "VALUE_CHANGED", "ATTRIBUTE_NEW", "ATTRIBUTE_LOST"}
-
 
 class StageFailure(Exception):
     def __init__(self, code: str, message: str):
@@ -193,6 +191,10 @@ def _load_json(data: bytes, name: str, side: str) -> dict:
 
 
 def run(run_dir: Path, emit: Emitter) -> dict:
+    from decision_diff.procedure_api import (
+        ProcedureContractError, validate_comparison, validate_normalized, validate_segment,
+    )
+
     started = perf_counter()
     cfg = json.loads((run_dir / "snapshot" / "config.json").read_text("utf-8"))
     inputs = json.loads((run_dir / "snapshot" / "inputs.json").read_text("utf-8"))
@@ -247,6 +249,10 @@ def run(run_dir: Path, emit: Emitter) -> dict:
         try:
             nb = _require_rows(fns["normalize"](b, app_id, "BEFORE"), NORMALIZED_COLUMNS, "normalize")
             na = _require_rows(fns["normalize"](a, app_id, "AFTER"), NORMALIZED_COLUMNS, "normalize")
+            nb = validate_normalized(nb, app_id=app_id, source="BEFORE")
+            na = validate_normalized(na, app_id=app_id, source="AFTER")
+        except ProcedureContractError as exc:
+            raise StageFailure("OUTPUT_SCHEMA_INVALID", f"{name}: normalize: {exc}") from exc
         except StageFailure:
             raise
         except Exception as exc:
@@ -263,13 +269,13 @@ def run(run_dir: Path, emit: Emitter) -> dict:
         nb, na = normalized[name]
         try:
             rows = _require_rows(fns["compare"](nb, na), COMPARISON_COLUMNS, "compare")
+            rows = validate_comparison(rows, app_id=docs[name][2])
+        except ProcedureContractError as exc:
+            raise StageFailure("OUTPUT_SCHEMA_INVALID", f"{name}: compare: {exc}") from exc
         except StageFailure:
             raise
         except Exception as exc:
             raise StageFailure("COMPARISON_ERROR", f"{name}: {type(exc).__name__}: {exc}") from exc
-        for r in rows:
-            if r["CHANGE_TYPE"] not in CHANGE_TYPES or int(r["DIFF_FLAG"]) != int(r["CHANGE_TYPE"] != "SAME"):
-                raise StageFailure("OUTPUT_SCHEMA_INVALID", f"{name}: invalid CHANGE_TYPE/DIFF_FLAG combination")
         comparison.extend(rows)
         if i % step == 0 or i == len(pairs):
             emit.send(type="progress", processed=i, total=len(pairs), message=f"compared {i}/{len(pairs)} pairs")
@@ -283,8 +289,10 @@ def run(run_dir: Path, emit: Emitter) -> dict:
         except Exception as exc:
             raise StageFailure("SEGMENTS_ERROR", f"{name}: {type(exc).__name__}: {exc}") from exc
         _require_rows([seg], SEGMENT_COLUMNS, "segments")
-        if str(seg["APP_ID"]) != app_id:
-            raise StageFailure("OUTPUT_SCHEMA_INVALID", f"{name}: segment APP_ID differs from pair APP_ID")
+        try:
+            seg = validate_segment(seg, app_id=app_id)
+        except ProcedureContractError as exc:
+            raise StageFailure("OUTPUT_SCHEMA_INVALID", f"{name}: segments: {exc}") from exc
         segment_rows.append(seg)
     emit.send(type="progress", processed=len(segment_rows), total=len(pairs), message=f"{len(segment_rows)} segment rows")
 
