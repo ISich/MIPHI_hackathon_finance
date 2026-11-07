@@ -1,6 +1,6 @@
 # QA-набор: контракты и интеграционные/приёмочные тесты
 
-Ветка `test/contracts-night`. Код приложения не меняется; здесь только тесты, фикстуры и скрипты.
+QA-набор лежит в корне репозитория (`tests/`, `scripts/`, `requirements-qa.txt`, `pytest.ini`) рядом с `backend/` и `frontend/` (влит в `main` из `test/contracts-night`, PR #2). Тесты не меняют код приложения; backend тестируется как отдельный процесс.
 Матрица трассировки требований: [requirements-traceability.md](requirements-traceability.md).
 
 ## Что внутри
@@ -11,7 +11,7 @@
 | `tests/http/` | Black-box HTTP: health/ready/openapi, асинхронный Run, изоляция владельцев, path traversal, снимки, идентичность отчётов, FAIL / ошибка исполнения / 0 строк, user code | запущенный backend на loopback (`QA_BASE_URL`) |
 | `tests/restart/` | Run, прерванный SIGKILL сервера | `QA_BACKEND_DIR` (тест сам поднимает и гасит свой сервер) |
 | `tests/selftest/` | Проверка самих тестов: лаунчеры (относительные пути, занятый порт, несовпадение режима) и мутационные selftests — тест обязан упасть, когда настоящий backend стоит за прокси, вносящим ровно тот дефект, который тест должен ловить | `QA_BACKEND_DIR` |
-| `tests/support/mutating_proxy.py` | **TEST DOUBLE**: прокси перед настоящим backend с одной именованной мутацией (`summary_200_while_running`, `pivot_500`, `trust_owner_header`, `lie_mode_builtin`, `stuck_running`, `checks_garbage_while_running`, `shared_owner_for_query`, `refuse_custom_config`). Используется только в `tests/selftest`, доказательством поведения backend не является | — |
+| `tests/support/mutating_proxy.py` | **TEST DOUBLE**: прокси перед настоящим backend с одной именованной мутацией (полный список — в docstring модуля; например `summary_200_while_running`, `pivot_500`, `trust_owner_header`, `lie_mode_builtin`, `stuck_running`, `checks_garbage_while_running`, `shared_owner_for_query`, `refuse_custom_config`, `pivot_200_no_locator`, `checks_bad_values`, `html_wrong_link`). Используется только в `tests/selftest`, доказательством поведения backend не является | — |
 | `tests/support/fs_probe.py` | Граница для проверки upload: внутри `DD_HOME` хранение разрешено; копия у любого предка `DD_HOME` (цели `../`) или в остальном рабочем каталоге запрещена | — |
 | `tests/support/backend_proc.py` | Запуск реального backend для restart/selftest: порт должен быть свободен; `/health` засчитывается, только когда сокет принадлежит запущенному PID; режим проверяется через `/api/session` | `QA_BACKEND_DIR` |
 | `tests/support/fixtures.py` | Синтетические ответы СПР и прогон **настоящего** конвейера: CLI ядра → D4 storage → DuckDBMart | — |
@@ -29,25 +29,26 @@
 ```bash
 python3 -m venv .venv                      # нужен пакет python3-venv
 .venv/bin/python -m pip install -r requirements-qa.txt   # при смене CORE_COMMIT: --force-reinstall --no-deps (версия пакета не меняется)
-scripts/fetch_core_checks.sh               # один раз; нужен fetch origin SomeShit
+scripts/fetch_core_checks.sh               # один раз; нужен fetch origin SomeShit (origin = ISich/MIPHI_hackathon_finance)
+(cd backend && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-dev.txt -e . && scripts/fetch_core.sh)   # backend, см. backend/README.md
 
 # 1) offline-контракты ядра/D4 (~15 с)
 .venv/bin/python -m pytest tests/contracts -q
 
 # 2) HTTP против локально поднятого backend (оба режима исполнения)
-BACKEND_DIR=../MIPHI_hackathon_finance/backend scripts/run_http_suite.sh builtin-only tests/http -q
-BACKEND_DIR=../MIPHI_hackathon_finance/backend scripts/run_http_suite.sh trusted-local tests/http -q
+BACKEND_DIR="$PWD/backend" scripts/run_http_suite.sh builtin-only tests/http -q
+BACKEND_DIR="$PWD/backend" scripts/run_http_suite.sh trusted-local tests/http -q
 
 # 2b) HTTP против уже запущенного backend (только loopback); synthetic-наборы — если root указывает на DIR
 QA_BASE_URL=http://127.0.0.1:8000 [QA_FIXTURE_ROOT=qa QA_FIXTURE_DIR=DIR] .venv/bin/python -m pytest tests/http -q
 
 # 3) restart и selftests (относительные пути допустимы)
-QA_BACKEND_DIR=../MIPHI_hackathon_finance/backend .venv/bin/python -m pytest tests/restart -q -s
-QA_BACKEND_DIR=../MIPHI_hackathon_finance/backend .venv/bin/python -m pytest tests/selftest -q
+QA_BACKEND_DIR="$PWD/backend" .venv/bin/python -m pytest tests/restart -q -s
+QA_BACKEND_DIR="$PWD/backend" .venv/bin/python -m pytest tests/selftest -q
 
 # Воспроизводимая цель: read-only снимок закоммиченного backend вместо живой рабочей копии
-#   git -C ../MIPHI_hackathon_finance archive <SHA> backend | tar -x -C /tmp/be
-#   ln -s "$PWD/../MIPHI_hackathon_finance/backend/.venv" /tmp/be/backend/.venv
+#   git archive <SHA> backend | tar -x -C /tmp/be
+#   ln -s "$PWD/backend/.venv" /tmp/be/backend/.venv
 #   BACKEND_DIR=/tmp/be/backend scripts/run_http_suite.sh builtin-only tests/http -q
 
 scripts/qa_servers_alive.sh                # должно ничего не вывести

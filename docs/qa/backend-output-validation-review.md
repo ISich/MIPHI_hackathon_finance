@@ -1,5 +1,7 @@
 # Backend procedure-output validation — review handoff
 
+> **Статус:** влито в `main` — PR #7 (`codex/backend-pivot-acceptance`): коммиты 9cb959c, 4960d82; финальный `main` = 010f42a. Ниже — исходная handoff-заметка; фразы «no commit/push/merge» относятся к моменту её написания.
+
 Base: `42326824d0776b2dacace6a6819f02397c3676b9`.
 Local branch: `codex/backend-pivot-acceptance`.
 Core pin unchanged: `421da26caf030ce230778ffbd07ee1f72bf71217`.
