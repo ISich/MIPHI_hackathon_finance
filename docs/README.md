@@ -6,20 +6,22 @@
 
 ## Быстрый старт для команды
 
-1. Прочитать PRD §§5–8, 14 и [разделение на четверых](team.md).
-2. Назначить людей на D1–D4; имена пока не заданы.
+1. Прочитать PRD §§5–8, 14 и [распределение четырёх зон на троих](team.md).
+2. Подтвердить людей на три потока: Павел — D2; автор ядра — D1+D4; frontend — D3. Не добавлять фиктивного четвёртого участника.
 3. Согласовать [контракты данных](contracts/data.md), [исполнения](contracts/execution.md) и [API](contracts/api.md) до независимой разработки.
 4. Принять/отклонить решения в [реестре](decisions.md); ответить на [вопросы](questions.md).
 5. Каждый берёт свой модульный PRD и первые задачи. Интеграция начинается в первом рабочем интервале, не в конце хакатона.
 
-## Четыре модульных PRD
+## Четыре модульных PRD на трёх участников
+
+По последнему запросу команды участников трое; предлагается Павел=D2, автор ядра=D1+D4, frontend=D3. Это четыре зоны, не четыре обязательных человека. Новая раскладка — в team.md; данные ядра [проверены отдельно](quality/core-verification.md).
 
 - D1: [данные и сравнение](modules/01-data-engine.md).
 - D2: [платформа, запуски и стенд](modules/02-platform-runtime.md).
 - D3: [веб-интерфейс и редактор](modules/03-web-workspace.md).
 - D4: [MartAPI, проверки и аналитические отчёты](modules/04-checks-reporting.md).
 
-Другие документы: [архитектура](architecture.md), [интеграционный план](integration-plan.md), [покрытие требований](traceability.md), [проверки](quality/acceptance.md), [стенд](deployment/runbook.md), [итоговое ревью Claude Code](quality/review.md).
+Другие документы: [архитектура](architecture.md), [интеграционный план](integration-plan.md), [покрытие требований](traceability.md), [проверки](quality/acceptance.md), [стенд](deployment/runbook.md), [итоговое ревью Claude Code](quality/review.md), [локальная frontend-среда](frontend-environment.md), [поручение Codex: сеть, Playwright и PR](handoffs/frontend-codex.md).
 
 ## Важные ограничения
 
