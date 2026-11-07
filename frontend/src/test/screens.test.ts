@@ -69,6 +69,31 @@ describe("Run monitor", () => {
   });
 });
 
+describe("Run journal longer than one events page", () => {
+  it("drains the whole event backlog before polling stops at a terminal status", async () => {
+    resetMock({ eventsPageLimit: 3, extraEventsPerStage: 8 });
+    const cfg = await testApi.createConfiguration({ name: "t", dataset_id: "ds_mock_examples", slots: {} });
+    const run = await testApi.createRun({ configuration_id: cfg.config_id }, "k-long");
+    const w = mnt(RunPage, { runId: run.run_id, tab: "monitor", query: new URLSearchParams() });
+    await waitFor(() => expect(byTestId(w, "run-status").textContent).toBe("COMPLETED"), 4000);
+    await new Promise((r) => setTimeout(r, 50));
+    // ground truth: page through the same API
+    let after = 0;
+    const all: number[] = [];
+    for (;;) {
+      const p = await testApi.events(run.run_id, after);
+      if (!p.items.length) break;
+      all.push(...p.items.map((e) => e.seq));
+      after = p.next_after;
+    }
+    expect(all.length).toBeGreaterThan(40);
+    const shown = [...table(w, "Журнал событий").querySelectorAll("tr")].map((r) => Number(r.querySelector("td")!.textContent));
+    expect(shown).toEqual(all);
+    expect(text(w)).toContain("Run completed (MOCK)");
+    w.unmount();
+  });
+});
+
 describe("Progress", () => {
   it("never invents a percent when total is unknown", () => {
     const w = mnt(ProgressBar, { processed: 5, total: null });

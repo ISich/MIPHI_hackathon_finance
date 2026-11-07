@@ -34,6 +34,10 @@ export interface MockOptions {
   serverPivot?: boolean;
   /** How many GET polls a run needs per stage. */
   ticksPerStage?: number;
+  /** Page size of GET /runs/{id}/events (backend default limit: 500). */
+  eventsPageLimit?: number;
+  /** Extra progress events per stage (to produce long journals). */
+  extraEventsPerStage?: number;
 }
 
 type Json = Record<string, unknown>;
@@ -388,6 +392,7 @@ export function createMockFetch(opts: MockOptions) {
       if (run.stage === "NORMALIZING") run.processed = 0;
       if (run.stage === "COMPARING") run.processed = APPS.length;
       pushEvent(run, `Stage ${run.stage} (MOCK)`, slot ? `${slot}@mock00000000` : null);
+      for (let i = 1; i <= (opts.extraEventsPerStage ?? 0); i++) pushEvent(run, `progress ${run.stage} ${i} (MOCK)`);
       return;
     }
     const cr = checkRuns.find((c) => c.check_run_id === run.initial_check_run_id)!;
@@ -534,7 +539,8 @@ export function createMockFetch(opts: MockOptions) {
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/events$/))) {
       if (!runs.some((r) => r.run_id === m![1])) return err(404, "NOT_FOUND", "run not found");
       const after = Number(url.searchParams.get("after") ?? 0);
-      const items = (events.get(m[1]!) ?? []).filter((e) => e.seq > after);
+      const limit = Number(url.searchParams.get("limit") ?? opts.eventsPageLimit ?? 500);
+      const items = (events.get(m[1]!) ?? []).filter((e) => e.seq > after).slice(0, limit);
       return json(200, { items, next_after: items.length ? items[items.length - 1]!.seq : after });
     }
     if ((m = p.match(/^\/api\/runs\/([^/]+)\/code\/([^/]+)$/))) {

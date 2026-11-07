@@ -33,6 +33,8 @@ const events = shallowRef<RunEvent[]>([]);
 // watched live stays on the monitor when it completes.
 const openedCompleted = ref<boolean | null>(null);
 let lastSeq = 0;
+/** Safety cap; with the backend's 500-event pages this is 500k events per tick. */
+const MAX_EVENT_PAGES_PER_TICK = 1000;
 
 watch(
   () => props.runId,
@@ -41,29 +43,50 @@ watch(
     error.value = null;
     events.value = [];
     openedCompleted.value = null;
+    backlog.value = false;
     lastSeq = 0;
   },
 );
 
-const active = computed(() => !run.value || run.value.status === "QUEUED" || run.value.status === "RUNNING");
+const backlog = ref(false);
+const active = computed(() => !run.value || run.value.status === "QUEUED" || run.value.status === "RUNNING" || backlog.value);
 usePolling(
   () => active.value && !(error.value && !run.value),
   () => timing.runPollMs,
   async () => {
     const id = props.runId;
     try {
-      // Status first, then events: once a terminal status is seen, the events
-      // fetched afterwards already contain the final ones (polling stops then).
+      // Status first, then the whole event backlog: once a terminal status is
+      // seen, the events drained afterwards contain the final ones, and polling
+      // stops only after the journal is read to the end (it may span many pages).
       const r = await api.run(id);
-      const ev = await api.events(id, lastSeq);
       if (props.runId !== id) return; // stale: user switched Run
+      const fresh: RunEvent[] = [];
+      let after = lastSeq;
+      let drained = false;
+      for (let page = 0; page < MAX_EVENT_PAGES_PER_TICK; page++) {
+        const ev = await api.events(id, after);
+        if (props.runId !== id) return;
+        if (!ev.items.length) {
+          drained = true;
+          break;
+        }
+        fresh.push(...ev.items);
+        const next = Math.max(ev.next_after, ...ev.items.map((e) => e.seq));
+        if (next <= after) {
+          drained = true; // backend did not advance: avoid a tight loop
+          break;
+        }
+        after = next;
+      }
+      backlog.value = !drained; // cap reached: keep polling until the journal is read
       run.value = r;
       if (openedCompleted.value === null) openedCompleted.value = r.status === "COMPLETED";
       error.value = null;
-      if (ev.items.length) {
-        lastSeq = Math.max(ev.next_after, ...ev.items.map((e) => e.seq));
+      if (fresh.length) {
+        lastSeq = after;
         const seen = new Set(events.value.map((e) => e.seq));
-        events.value = [...events.value, ...ev.items.filter((e) => !seen.has(e.seq))];
+        events.value = [...events.value, ...fresh.filter((e) => !seen.has(e.seq))];
       }
     } catch (e) {
       if (props.runId === id) error.value = e;
