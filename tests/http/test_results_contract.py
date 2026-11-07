@@ -1,7 +1,7 @@
 """Results surface: summary (FR-013), pivot / drill-down (FR-011/012, AC-09/10), params (FR-009), concurrency (NFR-005)."""
 from __future__ import annotations
 
-import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -135,17 +135,24 @@ def test_builtin_check_exposes_default_params(api_a):
 
 def test_two_sessions_run_concurrently_without_mixing(base_url, fixture_root):
     root, _ = fixture_root
-    results = {}
-
-    def go(name, path):
+    def go(path):
         api = Api(base_url)
-        ds = api.dataset(root, "dirs", f"{path}/BEFORE", f"{path}/AFTER")
-        final = api.wait(f"/api/runs/{api.start_run(api.config(ds['dataset_id'])['config_id']).json()['run_id']}")
-        results[name] = (final["status"], _summary(api, final["run_id"]))
+        try:
+            ds = api.dataset(root, "dirs", f"{path}/BEFORE", f"{path}/AFTER")
+            accepted = api.start_run(api.config(ds["dataset_id"])["config_id"])
+            assert accepted.status_code == 202, accepted.text
+            final = api.wait(f"/api/runs/{accepted.json()['run_id']}")
+            assert final["status"] == "COMPLETED", final
+            return final["status"], _summary(api, final["run_id"])
+        finally:
+            api.http.close()
 
-    threads = [threading.Thread(target=go, args=("A", "events")), threading.Thread(target=go, args=("B", "neutral"))]
-    [t.start() for t in threads]
-    [t.join(timeout=300) for t in threads]
+    # HTTP requests and Api.wait already have bounded deadlines. Waiting on the
+    # futures propagates their real errors; a separate 300s join could expire
+    # before registration plus Api.wait's own 300s deadline had finished.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {"A": pool.submit(go, "events"), "B": pool.submit(go, "neutral")}
+        results = {name: future.result() for name, future in futures.items()}
     assert results["A"][0] == results["B"][0] == "COMPLETED"
     assert (results["A"][1]["total_apps"], results["A"][1]["changed_apps"]) == (6, 5)
     assert (results["B"][1]["total_apps"], results["B"][1]["changed_apps"]) == (3, 0)

@@ -69,3 +69,30 @@ No full Linux backend suite, real-browser E2E or deployment was performed here.
 The ten existing xfails belong to core runner/MartAPI/HTML contracts; they are
 not new failures introduced by this patch and are not counted as passing checks.
 No commit, push, merge or deployment has been performed.
+
+
+## Follow-up: PR7 parallel-session failure investigation
+
+The parallel-session HTTP test predates this branch. Its detached threads wrote
+into a shared dictionary and were joined for 300 seconds, even though dataset
+registration/configuration precedes Api.wait's own 300-second deadline. A worker
+exception or early join expiry could leave only a missing-result error and allow
+background requests to survive the assertion.
+
+The test now uses futures to propagate the real worker exception, asserts run
+acceptance and terminal success, and closes each HTTP client in finally. HTTP
+request deadlines and Api.wait's run deadline are unchanged; no timeout is
+silently ignored and no server behavior is mocked.
+
+Fresh Ubuntu 24.04/WSL verification:
+- Before this correction: parallel-session case plus both new Pivot cases, 3 passed
+  in 25.99 seconds. Pavel's 300-second failure was not reproduced locally.
+- After correction: full results HTTP file, 12 passed and 1 existing xfailed in
+  32.29 seconds. The xfail is test_summary_has_decision_directions (API-DISC-01),
+  unrelated to concurrency and not counted as a pass.
+- Separate unchanged PR8 commit 6000464: full backend suite 109 passed in 444.62
+  seconds. An earlier targeted group had 7 passes and one follow-up-run TIMEOUT;
+  the corresponding main test passed in isolation. This mixed evidence does not
+  establish that load alone caused Pavel's failures or certify a combined release.
+
+No production code or dependency versions were changed by this follow-up.
