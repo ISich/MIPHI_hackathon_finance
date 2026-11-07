@@ -1,6 +1,9 @@
 """Execution containment supervisor (Linux).
 
-    python -I -m dd_backend.supervisor <worker_pid> <marker_path> -- <child argv...>
+    python -I -m dd_backend.supervisor <worker_pid> <marker_path> <as_bytes> <fsize_bytes> -- <child argv...>
+
+Resource limits and umask are applied HERE, after exec, so the worker launches us without any Python
+code between fork and exec (no preexec_fn: inherited locks cannot deadlock the launch).
 
 * Becomes a child subreaper (PR_SET_CHILD_SUBREAPER): every descendant of the execution that gets
   orphaned -- including ones that called setsid() or dropped their environment -- is re-parented
@@ -69,7 +72,13 @@ def contain(rounds: int = 500) -> bool:
 
 def main() -> int:
     worker_pid, marker = int(sys.argv[1]), Path(sys.argv[2])
-    cmd = sys.argv[4:]
+    as_bytes, fsize = int(sys.argv[3]), int(sys.argv[4])
+    cmd = sys.argv[6:]
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (as_bytes, as_bytes))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    os.umask(0o077)
     libc = ctypes.CDLL("libc.so.6", use_errno=True)
     if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
         return 70  # cannot contain: refuse to run anything (no marker)

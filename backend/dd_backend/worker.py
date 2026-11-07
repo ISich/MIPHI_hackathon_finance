@@ -155,6 +155,41 @@ def _read_protocol(path: Path, limit: int) -> tuple[dict | None, str, int]:
     return (value, "ok", read) if isinstance(value, dict) else (None, "invalid", read)
 
 
+EXECUTION_RESULT_STATUSES = ("SUCCEEDED", "INVALID_OUTPUT", "ERROR")
+_ROW_FIELDS = ("LABEL", "SOURCE", "ARGUMENT", "CNT", "TOTAL", "METRIC", "APP_IDS", "RESULT", "CONFIDENCE")
+
+
+def _valid_registration(v: dict) -> bool:
+    """Schema of check_child 'register' output (the file may have been rewritten by user code)."""
+    if v.get("ok") is True:
+        return (isinstance(v.get("id"), str) and bool(v["id"]) and len(v["id"]) <= 200
+                and isinstance(v.get("label"), str) and isinstance(v.get("params"), dict))
+    if v.get("ok") is False:
+        return (v.get("status") in ("IMPORT_ERROR", "CONTRACT_ERROR") and isinstance(v.get("error_type"), str)
+                and isinstance(v.get("message"), str))
+    return False
+
+
+def _result_problem(v: dict) -> str | None:
+    """Schema of check_child 'run' output; returns a short reason or None when valid."""
+    status, rows, diags = v.get("status"), v.get("rows"), v.get("diagnostics")
+    if status not in EXECUTION_RESULT_STATUSES:
+        return "unknown status"
+    if not isinstance(rows, list) or not isinstance(diags, list):
+        return "rows/diagnostics must be lists"
+    if not all(isinstance(d, dict) for d in diags):
+        return "diagnostic is not an object"
+    if status != "SUCCEEDED":
+        return "rows present for a failed execution" if rows else None
+    for row in rows:
+        if not isinstance(row, dict) or any(f not in row for f in _ROW_FIELDS):
+            return "row misses contract fields"
+        if (row["RESULT"] not in ("PASS", "FAIL") or row["SOURCE"] not in ("BEFORE", "AFTER")
+                or row["CONFIDENCE"] not in ("HIGH", "LOW") or not isinstance(row["APP_IDS"], list)):
+            return "row has invalid enum/list values"
+    return None
+
+
 def _contained(marker: Path) -> bool:
     """After the supervisor is reaped: verified containment, or it never forked a child (it publishes
     the ``.started`` handshake before forking)."""
@@ -440,19 +475,6 @@ class Worker:
         return {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "HOME": str(workdir),
                 "TMPDIR": str(tmp), "PYTHONDONTWRITEBYTECODE": "1", "PYTHONHASHSEED": "0", "PYTHONUNBUFFERED": "1"}
 
-    def _limits(self) -> Callable[[], None]:
-        mem = self.settings.max_memory_mb * 1024 * 1024
-        fsize = self.settings.max_output_bytes
-
-        def apply() -> None:
-            resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-            resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
-            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-            os.umask(0o077)
-            if _LIBC is not None:  # Linux: child dies with the worker instead of running orphaned
-                _LIBC.prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
-        return apply
-
     def _kill_child(self) -> None:
         """Ask the execution's containment supervisor to stop (SIGTERM): it kills and reaps the whole
         execution tree, verifies it and writes the containment marker. Escalation to SIGKILL of the
@@ -490,11 +512,15 @@ class Worker:
             inner.append(str(ev_w))
         marker = self.settings.home / "executions" / f"{mark}.contained"
         marker.parent.mkdir(parents=True, exist_ok=True)
-        cmd = [sys.executable, "-I", "-m", "dd_backend.supervisor", str(os.getpid()), str(marker), "--", *inner]
+        cmd = [sys.executable, "-I", "-m", "dd_backend.supervisor", str(os.getpid()), str(marker),
+               str(self.settings.max_memory_mb * 1024 * 1024), str(self.settings.max_output_bytes), "--", *inner]
+        # No preexec_fn: nothing written in Python runs between fork and exec (threads may hold locks);
+        # limits/umask/PDEATHSIG are set by the supervisor itself. Supervision and its timeout start
+        # right after this call returns.
         child = subprocess.Popen(
             cmd, cwd=workdir, env={**self._child_env(workdir), EXEC_MARK_VAR: mark}, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(ev_w,) if on_event else (),
-            start_new_session=True, preexec_fn=self._limits(), close_fds=True,
+            start_new_session=True, close_fds=True,
         )
         with self._lock:
             self._child = child
@@ -750,67 +776,83 @@ class Worker:
                   "label": None, "params": s["params"], "execution_status": None, "diagnostics": [], "rows": [],
                   "duration_seconds": None}
             executions.append(ex)
-            path = settings.runs_dir / s["snapshot_rel"]
-            reg_out = cdir / f"{s['slot']}.register.json"
-            started = time.monotonic()
-            rc, timed_out = self.spawn(["dd_backend.check_child", "register", str(path), str(reg_out)],
-                                       workdir=cdir / "work", timeout=settings.check_timeout_seconds,
-                                       log_path=cdir / f"{s['slot']}.log")
-            if timed_out:
-                ex.update(execution_status="TIMEOUT", diagnostics=[{"error_type": "Timeout", "message": "check import timed out"}])
-                continue
-            reg, pstatus, _ = _read_protocol(reg_out, REGISTRATION_RESULT_LIMIT) if rc == 0 else (None, "exit", 0)
-            if reg is None:
-                ex.update(execution_status="ERROR", diagnostics=[{
-                    "error_type": "ChildFailed" if pstatus == "exit" else "ProtocolFile",
-                    "message": (f"registration process exit code {rc}; result ignored" if pstatus == "exit"
-                                else f"registration result unusable ({pstatus})")}])
-                continue
-            if not reg["ok"]:
-                ex.update(execution_status=reg["status"], diagnostics=[{"error_type": reg["error_type"],
-                                                                        "message": self._sanitize(reg["message"])}])
-                continue
-            ex.update(check_id=reg["id"], label=reg["label"])
-            if reg["id"] in seen_ids:
-                ex.update(execution_status="DUPLICATE_ID", diagnostics=[{
-                    "error_type": "DuplicateCheckId",
-                    "message": f"CHECK.id {reg['id']!r} already registered by {seen_ids[reg['id']]}; not executed"}])
-                continue
-            seen_ids[reg["id"]] = s["slot"]
-            ex["params"] = {**reg["params"], **s["params"]}
-            overrides = cdir / f"{s['slot']}.params.json"
-            overrides.write_text(json.dumps({reg["id"]: s["params"]}))
-            run_out = cdir / f"{s['slot']}.result.json"
-            rc, timed_out = self.spawn(["dd_backend.check_child", "run", str(path), str(mart), str(overrides), str(run_out)],
-                                       workdir=cdir / "work", timeout=settings.check_timeout_seconds,
-                                       log_path=cdir / f"{s['slot']}.log")
-            ex["duration_seconds"] = round(time.monotonic() - started, 3)
-            if timed_out:
-                ex.update(execution_status="TIMEOUT", diagnostics=[{
-                    "error_type": "Timeout", "message": f"check exceeded {settings.check_timeout_seconds}s and was killed"}])
-                continue
-            if rc != 0:
-                ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildFailed",
-                                                                  "message": f"check process exit code {rc}; result ignored"}])
-                continue
-            res, pstatus, size = _read_protocol(run_out, min(settings.max_check_result_bytes,
-                                                             max(0, settings.max_report_bytes - report_bytes)))
-            if pstatus == "too_big":
-                over_budget = size <= settings.max_check_result_bytes
-                ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
-                    "error_type": "ReportBudgetExceeded" if over_budget else "ResultTooLarge",
-                    "message": (f"report budget DD_MAX_REPORT_BYTES exhausted ({report_bytes}+{size} bytes); not loaded"
-                                if over_budget else
-                                f"check result {size} bytes exceeds DD_MAX_CHECK_RESULT_BYTES; not loaded")}])
-                continue
-            if res is None:
-                ex.update(execution_status="INVALID_OUTPUT" if pstatus in ("not_regular", "invalid") else "ERROR",
-                          diagnostics=[{"error_type": "ProtocolFile", "message": f"check result unusable ({pstatus})"}])
-                continue
-            report_bytes += size
-            ex.update(execution_status=res["status"], rows=res["rows"],
-                      diagnostics=[{**d, "message": self._sanitize(str(d.get("message", ""))),
-                                    "file": s["slot"] + ".py"} for d in res["diagnostics"]])
+            try:
+                path = settings.runs_dir / s["snapshot_rel"]
+                reg_out = cdir / f"{s['slot']}.register.json"
+                started = time.monotonic()
+                rc, timed_out = self.spawn(["dd_backend.check_child", "register", str(path), str(reg_out)],
+                                           workdir=cdir / "work", timeout=settings.check_timeout_seconds,
+                                           log_path=cdir / f"{s['slot']}.log")
+                if timed_out:
+                    ex.update(execution_status="TIMEOUT", diagnostics=[{"error_type": "Timeout", "message": "check import timed out"}])
+                    continue
+                reg, pstatus, _ = _read_protocol(reg_out, REGISTRATION_RESULT_LIMIT) if rc == 0 else (None, "exit", 0)
+                if reg is None:
+                    ex.update(execution_status="ERROR", diagnostics=[{
+                        "error_type": "ChildFailed" if pstatus == "exit" else "ProtocolFile",
+                        "message": (f"registration process exit code {rc}; result ignored" if pstatus == "exit"
+                                    else f"registration result unusable ({pstatus})")}])
+                    continue
+                if not _valid_registration(reg):
+                    ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
+                        "error_type": "MalformedProtocol", "message": "registration result does not match the protocol schema"}])
+                    continue
+                if not reg["ok"]:
+                    ex.update(execution_status=reg["status"], diagnostics=[{"error_type": reg["error_type"],
+                                                                            "message": self._sanitize(reg["message"])}])
+                    continue
+                ex.update(check_id=reg["id"], label=reg["label"])
+                if reg["id"] in seen_ids:
+                    ex.update(execution_status="DUPLICATE_ID", diagnostics=[{
+                        "error_type": "DuplicateCheckId",
+                        "message": f"CHECK.id {reg['id']!r} already registered by {seen_ids[reg['id']]}; not executed"}])
+                    continue
+                seen_ids[reg["id"]] = s["slot"]
+                ex["params"] = {**reg["params"], **s["params"]}
+                overrides = cdir / f"{s['slot']}.params.json"
+                overrides.write_text(json.dumps({reg["id"]: s["params"]}))
+                run_out = cdir / f"{s['slot']}.result.json"
+                rc, timed_out = self.spawn(["dd_backend.check_child", "run", str(path), str(mart), str(overrides), str(run_out)],
+                                           workdir=cdir / "work", timeout=settings.check_timeout_seconds,
+                                           log_path=cdir / f"{s['slot']}.log")
+                ex["duration_seconds"] = round(time.monotonic() - started, 3)
+                if timed_out:
+                    ex.update(execution_status="TIMEOUT", diagnostics=[{
+                        "error_type": "Timeout", "message": f"check exceeded {settings.check_timeout_seconds}s and was killed"}])
+                    continue
+                if rc != 0:
+                    ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildFailed",
+                                                                      "message": f"check process exit code {rc}; result ignored"}])
+                    continue
+                res, pstatus, size = _read_protocol(run_out, min(settings.max_check_result_bytes,
+                                                                 max(0, settings.max_report_bytes - report_bytes)))
+                if pstatus == "too_big":
+                    over_budget = size <= settings.max_check_result_bytes
+                    ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
+                        "error_type": "ReportBudgetExceeded" if over_budget else "ResultTooLarge",
+                        "message": (f"report budget DD_MAX_REPORT_BYTES exhausted ({report_bytes}+{size} bytes); not loaded"
+                                    if over_budget else
+                                    f"check result {size} bytes exceeds DD_MAX_CHECK_RESULT_BYTES; not loaded")}])
+                    continue
+                if res is None:
+                    ex.update(execution_status="INVALID_OUTPUT" if pstatus in ("not_regular", "invalid") else "ERROR",
+                              diagnostics=[{"error_type": "ProtocolFile", "message": f"check result unusable ({pstatus})"}])
+                    continue
+                problem = _result_problem(res)
+                if problem:
+                    ex.update(execution_status="INVALID_OUTPUT", diagnostics=[{
+                        "error_type": "MalformedProtocol", "message": f"check result does not match the protocol schema: {problem}"}])
+                    continue
+                report_bytes += size
+                ex.update(execution_status=res["status"], rows=res["rows"],
+                          diagnostics=[{**d, "message": self._sanitize(str(d.get("message", ""))),
+                                        "file": s["slot"] + ".py"} for d in res["diagnostics"]])
+            except (LeaseLost, UncontainedExecution):
+                raise
+            except Exception as exc:  # one check's failure never fails the whole job
+                log.exception("check slot %s failed inside the worker", s["slot"])
+                ex.update(execution_status="ERROR", rows=[], diagnostics=[{
+                    "error_type": "WorkerCheckError", "message": f"internal error while handling this check ({type(exc).__name__})"}])
         return self._publish_report(run_id, cr_id, executions, initial=initial)
 
     def _publish_report(self, run_id: str, cr_id: str, executions: list[dict], *, initial: bool) -> bool:

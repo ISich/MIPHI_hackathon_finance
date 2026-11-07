@@ -205,18 +205,29 @@ class Database:
 
     def init(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as con:
+        con = self.connect()
+        try:
             con.execute("PRAGMA journal_mode=WAL")
-            con.executescript(SCHEMA)
-            cols = {r[1] for r in con.execute("PRAGMA table_info(workers)")}
-            if "proc_start" not in cols:  # migration: process identity for same-host liveness
-                con.execute("ALTER TABLE workers ADD COLUMN proc_start TEXT")
-            jcols = {r[1] for r in con.execute("PRAGMA table_info(jobs)")}
-            if "exec_mark" not in jcols:  # migration: identity of the running execution's processes
-                con.execute("ALTER TABLE jobs ADD COLUMN exec_mark TEXT")
-                con.execute("ALTER TABLE jobs ADD COLUMN exec_pgid INTEGER")
-            if "exec_start" not in jcols:
-                con.execute("ALTER TABLE jobs ADD COLUMN exec_start TEXT")
+            con.executescript(SCHEMA)  # CREATE ... IF NOT EXISTS: idempotent under concurrency
+            # Inspect-and-alter is one write transaction, so concurrent starters serialize here.
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                cols = {r[1] for r in con.execute("PRAGMA table_info(workers)")}
+                if "proc_start" not in cols:  # migration: process identity for same-host liveness
+                    con.execute("ALTER TABLE workers ADD COLUMN proc_start TEXT")
+                jcols = {r[1] for r in con.execute("PRAGMA table_info(jobs)")}
+                if "exec_mark" not in jcols:  # migration: identity of the running execution's processes
+                    con.execute("ALTER TABLE jobs ADD COLUMN exec_mark TEXT")
+                if "exec_pgid" not in jcols:
+                    con.execute("ALTER TABLE jobs ADD COLUMN exec_pgid INTEGER")
+                if "exec_start" not in jcols:
+                    con.execute("ALTER TABLE jobs ADD COLUMN exec_start TEXT")
+                con.execute("COMMIT")
+            except BaseException:
+                con.execute("ROLLBACK")
+                raise
+        finally:
+            con.close()
 
     def connect(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.path, timeout=30, isolation_level=None)
