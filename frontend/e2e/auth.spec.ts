@@ -1,0 +1,36 @@
+import { test, expect } from "./guard";
+
+test("sign in, reject wrong password, restore on reload, sign out and block history", async ({ page, browserErrors }, info) => {
+  browserErrors.allow({ method: "POST", url: /^\/api\/auth\/login$/, status: 401 });
+  await page.goto("/#/scripts");
+  await expect(page.getByRole("heading", { name: "Вход в систему" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Основная навигация" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Войти", exact: true })).toBeEnabled();
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", await page.locator("body").evaluate(el => el.clientWidth));
+  await page.screenshot({ path: info.outputPath("login.png"), fullPage: true });
+  await page.getByLabel("Логин", { exact: true }).fill(process.env.E2E_USERNAME ?? "admin");
+  const password = page.getByLabel("Пароль", { exact: true });
+  await password.fill("wrong-password");
+  await page.getByRole("button", { name: "Показать пароль" }).click();
+  await expect(password).toHaveAttribute("type", "text");
+  await page.getByRole("button", { name: "Скрыть пароль" }).click();
+  await expect(password).toHaveAttribute("type", "password");
+  await page.getByRole("button", { name: "Войти", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Неверный логин или пароль");
+  await expect(page.getByRole("navigation", { name: "Основная навигация" })).toHaveCount(0);
+  await password.fill(process.env.E2E_PASSWORD ?? "admin12345");
+  await page.getByRole("button", { name: "Войти", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Рабочая область: скрипты", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/#\/scripts$/);
+  await expect(page.locator(".session-profile")).toContainText("Аналитик");
+  await page.reload();
+  await expect(page.locator(".dashboard-header")).toBeVisible();
+  const signOut = page.getByRole("button", { name: "Выйти", exact: true });
+  if (!(await signOut.isVisible())) await page.getByRole("button", { name: "Открыть боковую панель" }).click();
+  await page.getByRole("button", { name: "Выйти", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Вход в систему" })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Вход в систему" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Пароль", { exact: true })).toHaveValue("");
+});
