@@ -46,7 +46,7 @@ def test_events_monotonic_and_follow_stage_order(api_a, completed_example_run):
     assert tail["items"] == []
 
 
-def test_summary_comes_from_real_core(api_a, completed_example_run, organizer_checks_dir):
+def test_summary_comes_from_real_core(api_a, completed_example_run, organizer_checks_dir, tmp_path):
     """Compare server summary with an independent local run of the pinned core CLI on the same files."""
     run_id = completed_example_run["final"]["run_id"]
     r = api_a.get(f"/api/runs/{run_id}/summary")
@@ -54,7 +54,7 @@ def test_summary_comes_from_real_core(api_a, completed_example_run, organizer_ch
     server = r.json()
     server = server.get("summary", server)
     ex = organizer_checks_dir.parent / "examples"
-    out = organizer_checks_dir.parent.parent / f"local-{uuid.uuid4().hex[:6]}"
+    out = tmp_path / "local-core"
     subprocess.run([sys.executable, "-m", "decision_diff.cli", "--before", str(ex / "I32554354_other.json"),
                     "--after", str(ex / "I32554354.json"), "--out", str(out)], check=True, capture_output=True)
     local = json.loads((out / "summary.json").read_text(encoding="utf-8"))

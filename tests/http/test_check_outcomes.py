@@ -68,9 +68,8 @@ def finished(api_a, outcomes):
     assert outcomes["resp"].status_code == 202, outcomes["resp"].text
     cr = api_a.wait(f"/api/check-runs/{outcomes['resp'].json()['check_run_id']}", timeout=180)
     doc = api_a.get(f"/api/reports/{cr['report_id']}/checks").json()
-    by_id = {e["check_id"] or e["script_id"]: e for e in cr["executions"]}
     by_script = {e["script_id"]: e for e in cr["executions"]}
-    return {"cr": cr, "doc": doc, "by_id": by_id, "by_script": by_script, "ids": outcomes["ids"]}
+    return {"cr": cr, "doc": doc, "by_script": by_script, "ids": outcomes["ids"]}
 
 
 def _ex(finished, cid):
