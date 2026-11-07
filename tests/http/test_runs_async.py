@@ -167,3 +167,32 @@ def test_invalid_json_fails_the_run(api_a, fixture_root):
     assert api_a.get(f"/api/runs/{final['run_id']}/summary").status_code in (404, 409)
     rep = api_a.get(f"/api/reports/{final['initial_report_id']}").json()
     assert rep["status"] != "PUBLISHED"
+
+
+def test_failed_run_report_data_is_not_served_as_success(api_a, fixture_root):
+    """api.md: report data before ready / of a failed run -> explicit error, never an empty 'successful' table."""
+    root, _ = fixture_root
+    r = api_a.post("/api/datasets", {"name": "qa-badjson2", "root": root, "mode": "dirs",
+                                     "before": "badjson/BEFORE", "after": "badjson/AFTER"}, key=None)
+    assert r.status_code == 201, r.text
+    final = api_a.wait(f"/api/runs/{api_a.start_run(api_a.config(r.json()['dataset_id'])['config_id']).json()['run_id']}")
+    assert final["status"] == "FAILED"
+    rep = final["initial_report_id"]
+    for url in (f"/api/reports/{rep}/checks", f"/api/reports/{rep}/checks.html", f"/api/runs/{final['run_id']}/checks"):
+        assert_envelope(api_a.get(url), (404, 409, 410, 422))
+
+
+def test_technical_run_without_checks_is_marked(api_a, examples_root):
+    """checks=[] is allowed as a technical run but must say NO_CHECKS_SELECTED, not 'all checks passed'."""
+    ds = api_a.dataset(examples_root, "files", "I32554354_other.json", "I32554354.json")
+    final = api_a.wait(f"/api/runs/{api_a.start_run(api_a.config(ds['dataset_id'], checks=[])['config_id']).json()['run_id']}")
+    assert final["status"] == "COMPLETED"
+    doc = api_a.get(f"/api/runs/{final['run_id']}/checks").json()
+    assert doc["completeness"] == "NO_CHECKS_SELECTED" and doc["checks"] == []
+
+
+def test_unknown_code_slot_and_bad_paging(api_a, completed_example_run):
+    run_id = completed_example_run["final"]["run_id"]
+    assert_envelope(api_a.get(f"/api/runs/{run_id}/code/nosuchslot"), (404, 422))
+    assert_envelope(api_a.get("/api/runs", params={"limit": 100000}), 422)
+    assert_envelope(api_a.get(f"/api/runs/{run_id}/events", params={"after": -1}), 422)
