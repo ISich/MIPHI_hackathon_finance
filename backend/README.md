@@ -107,6 +107,7 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 | `DD_MAX_OUTPUT_BYTES` | `4 GiB` | per-file limit (RLIMIT_FSIZE) and total artifacts per run |
 | `DD_MAX_LOG_BYTES` | `1 MiB` | captured stdout/stderr per child |
 | `DD_MAX_MEMORY_MB` | `6144` | RLIMIT_AS per child |
+| `DD_MAX_INPUT_FILE_BYTES` | `64 MiB` | per input JSON file, enforced at registration (bounded hashing) and in the pipeline |
 | `DD_WORKER_LEASE_SECONDS` | `15` | heartbeat lease for worker liveness / interrupted-job detection |
 | `DD_COOKIE_SECURE` | `0` | set `1` behind TLS (local HTTP mode otherwise) |
 | `DD_ALLOWED_HOSTS` | `127.0.0.1,localhost,::1` | accepted `Host` names (anti DNS-rebinding); other hosts → 400. trusted-local accepts loopback names only |
@@ -157,6 +158,10 @@ read-only · 404 `NOT_FOUND` (also for other owners' IDs — existence is not le
   `Content-Length`.
 - Worker: a job is failed as interrupted only when its worker process is gone (same host: pid + start time);
   every write of a worker is fenced by job ownership. The whole child process group is killed after each child.
+  Every execution carries a random `RUNNER_EXECUTION_ID` in its environment (persisted in `jobs.exec_mark`
+  before start); after a worker crash, recovery kills all local processes with that mark before releasing the
+  job. A child that exits non-zero after writing a result is an execution ERROR (result ignored).
+  Dataset registration hashes regular files only, via non-blocking descriptors with bounded reads.
   Inputs are read once (no symlink, real path inside the root), and the fingerprinted bytes are the ones parsed.
   A run refuses to execute when the installed core differs from the accepted snapshot (`CORE_VERSION_MISMATCH`).
 

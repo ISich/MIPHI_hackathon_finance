@@ -1,10 +1,13 @@
 """Registry of datasets (allowlisted roots), scripts and run configurations."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import inspect
 import os
 import re
+import stat
+import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -243,13 +246,44 @@ class Registry:
         return ({p.name: inside(p) for p in before.glob("*.json")},
                 {p.name: inside(p) for p in after.glob("*.json")})
 
+    def file_digest(self, path: Path, label: str) -> bytes:
+        """Hash one input through a validated regular-file descriptor with bounded reads.
+
+        O_NONBLOCK so a FIFO cannot block the request; size limit before reading anything.
+        """
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        except OSError:
+            raise ApiError(422, "DATASET_FILE_NOT_REGULAR", "Input is not a readable regular file", {"file": label})
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                raise ApiError(422, "DATASET_FILE_NOT_REGULAR", "Input is not a regular file", {"file": label})
+            limit = self.settings.max_input_file_bytes
+            if st.st_size > limit:
+                raise ApiError(422, "DATASET_FILE_TOO_LARGE", "Input file exceeds DD_MAX_INPUT_FILE_BYTES",
+                               {"file": label, "limit_bytes": limit})
+            h = hashlib.sha256()
+            read = 0
+            while True:
+                chunk = os.read(fd, 1 << 20)
+                if not chunk:
+                    break
+                read += len(chunk)
+                if read > limit:
+                    raise ApiError(422, "DATASET_FILE_TOO_LARGE", "Input file grew beyond the limit", {"file": label})
+                h.update(chunk)
+            return h.digest()
+        finally:
+            os.close(fd)
+
     def scan_revision(self, ds: dict[str, Any]) -> dict[str, Any]:
         before, after = self.dataset_files(ds)
         digest = hashlib.sha256()
         for side, files in (("BEFORE", before), ("AFTER", after)):
             for name in sorted(files):
                 digest.update(f"{side}/{name}\0".encode())
-                digest.update(hashlib.sha256(files[name].read_bytes()).digest())
+                digest.update(self.file_digest(files[name], f"{side}/{name}"))
         return {
             "fingerprint": digest.hexdigest(),
             "pairs": len(set(before) & set(after)),
@@ -377,9 +411,16 @@ class Registry:
         target = self.settings.scripts_dir / rel
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_suffix(".tmp")
-            tmp.write_bytes(code)
-            os.replace(tmp, target)
+            # unique temp file + atomic rename: concurrent identical writes cannot steal each other's temp
+            fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".upload-", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(code)
+                os.replace(tmp, target)
+            except BaseException:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(tmp)
+                raise
         return sha, rel
 
     def create_script(self, owner_id: str, kind: str, source: str, name: str, code: bytes,

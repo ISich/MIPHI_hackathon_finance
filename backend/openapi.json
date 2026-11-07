@@ -3080,10 +3080,24 @@
      "200": {
       "content": {
        "application/json": {
-        "schema": {}
+        "schema": {
+         "type": "object"
+        }
+       },
+       "application/octet-stream": {
+        "schema": {
+         "format": "binary",
+         "type": "string"
+        }
+       },
+       "text/csv": {
+        "schema": {
+         "format": "binary",
+         "type": "string"
+        }
        }
       },
-      "description": "Successful Response"
+      "description": "Artifact file: CSV (';', UTF-8 BOM), summary JSON or DuckDB mart"
      },
      "400": {
       "content": {

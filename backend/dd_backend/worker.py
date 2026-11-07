@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import resource
+import secrets
 import selectors
 import shutil
 import signal
@@ -71,6 +72,46 @@ def _proc_start(pid: int) -> str | None:
     if fields[0] == "Z":
         return None
     return fields[19]
+
+
+EXEC_MARK_VAR = "RUNNER_EXECUTION_ID"
+
+
+def kill_marked(mark: str, pgid: int | None = None, wait: float = 3.0) -> int:
+    """SIGKILL every local process of one execution: its process group and anything whose
+    environment carries the execution mark (descendants that left the group keep it).
+    Returns the number of processes still alive afterwards (0 = clean)."""
+    def marked() -> list[int]:
+        needle = f"{EXEC_MARK_VAR}={mark}".encode()
+        found = []
+        for entry in os.scandir("/proc") if os.path.isdir("/proc") else ():
+            if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                continue
+            try:
+                env = Path(entry.path, "environ").read_bytes()
+                state = Path(entry.path, "stat").read_text().rsplit(")", 1)[1].split()[0]
+            except (OSError, IndexError):
+                continue
+            if state != "Z" and needle in env.split(b"\0"):
+                found.append(int(entry.name))
+        return found
+
+    if pgid:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    deadline = time.monotonic() + wait
+    while True:
+        pids = marked()
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        if not pids or time.monotonic() > deadline:
+            return len(pids)
+        time.sleep(0.05)
 
 
 class LeaseLost(Exception):
@@ -197,6 +238,13 @@ class Worker:
                                       (job["ref_id"],)).fetchone()
                 if row is None or not dead(row["worker_id"], row["heartbeat_at"]):
                     continue
+                if job["exec_mark"]:
+                    # Clean up the crashed execution's processes BEFORE the job is released.
+                    # By mark only: a recorded pgid may already be reused by an unrelated process.
+                    left = kill_marked(job["exec_mark"], None)
+                    if left:
+                        log.error("job %s: %d processes of the interrupted execution survive", job["ref_id"], left)
+                        continue  # keep it RUNNING (blocks new jobs) rather than overlap; retried next recover
                 msg = "Worker stopped while the job was running; job marked FAILED (not resumed automatically)"
                 if job["kind"] == "DATA_RUN":
                     self._fail_run_tx(con, job["ref_id"], "RUN_INTERRUPTED", msg)
@@ -244,7 +292,7 @@ class Worker:
                 if job is None:
                     self._stop.wait(POLL_SECONDS)
                     continue
-                self._current = {"kind": job["kind"], "ref": job["ref_id"]}
+                self._current = {"kind": job["kind"], "ref": job["ref_id"], "job_seq": job["job_seq"]}
                 try:
                     if job["kind"] == "DATA_RUN":
                         self.execute_data_run(job["ref_id"])
@@ -316,18 +364,26 @@ class Worker:
               on_event: Callable[[dict], None] | None = None) -> tuple[int | None, bool]:
         """Run a child; returns (returncode, timed_out). Logs are capped at max_log_bytes."""
         workdir.mkdir(parents=True, exist_ok=True)
+        mark = secrets.token_hex(16)
+        job_seq = self._current.get("job_seq")
+        if job_seq is not None:  # persisted BEFORE start so a crash at any point stays recoverable
+            with self.db.tx() as con:
+                con.execute("UPDATE jobs SET exec_mark=?, exec_pgid=NULL WHERE job_seq=?", (mark, job_seq))
         ev_r, ev_w = os.pipe()
         cmd = [sys.executable, "-I", "-m", *argv]
         if on_event is not None:
             cmd.append(str(ev_w))
         child = subprocess.Popen(
-            cmd, cwd=workdir, env=self._child_env(workdir), stdin=subprocess.DEVNULL,
+            cmd, cwd=workdir, env={**self._child_env(workdir), EXEC_MARK_VAR: mark}, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(ev_w,) if on_event else (),
             start_new_session=True, preexec_fn=self._limits(), close_fds=True,
         )
         os.close(ev_w)
         with self._lock:
             self._child = child
+        if job_seq is not None:
+            with self.db.tx() as con:
+                con.execute("UPDATE jobs SET exec_pgid=? WHERE job_seq=?", (child.pid, job_seq))
         log_budget = self.settings.max_log_bytes
         truncated = False
         deadline = time.monotonic() + timeout
@@ -398,6 +454,7 @@ class Worker:
             self._kill_child()
             rc = child.wait()
         self._kill_child()  # always: no descendant of this execution survives it
+        kill_marked(mark, None, wait=1.0)  # also descendants that left the process group
         with self._lock:
             self._child = None
         return (None if timed_out else rc), timed_out
@@ -561,10 +618,10 @@ class Worker:
             if timed_out:
                 ex.update(execution_status="TIMEOUT", diagnostics=[{"error_type": "Timeout", "message": "check import timed out"}])
                 continue
-            reg = json.loads(reg_out.read_text("utf-8")) if reg_out.exists() else None
+            reg = json.loads(reg_out.read_text("utf-8")) if reg_out.exists() and rc == 0 else None
             if reg is None:
-                ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildCrashed",
-                                                                  "message": f"registration exited with {rc}"}])
+                ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildFailed",
+                                                                  "message": f"registration process exit code {rc}; result ignored"}])
                 continue
             if not reg["ok"]:
                 ex.update(execution_status=reg["status"], diagnostics=[{"error_type": reg["error_type"],
@@ -589,10 +646,10 @@ class Worker:
                 ex.update(execution_status="TIMEOUT", diagnostics=[{
                     "error_type": "Timeout", "message": f"check exceeded {settings.check_timeout_seconds}s and was killed"}])
                 continue
-            res = json.loads(run_out.read_text("utf-8")) if run_out.exists() else None
+            res = json.loads(run_out.read_text("utf-8")) if run_out.exists() and rc == 0 else None
             if res is None:
-                ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildCrashed",
-                                                                  "message": f"check process exited with {rc}"}])
+                ex.update(execution_status="ERROR", diagnostics=[{"error_type": "ChildFailed",
+                                                                  "message": f"check process exit code {rc}; result ignored"}])
                 continue
             ex.update(execution_status=res["status"], rows=res["rows"],
                       diagnostics=[{**d, "message": self._sanitize(str(d.get("message", ""))),

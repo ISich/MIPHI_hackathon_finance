@@ -211,6 +211,10 @@ class Database:
             cols = {r[1] for r in con.execute("PRAGMA table_info(workers)")}
             if "proc_start" not in cols:  # migration: process identity for same-host liveness
                 con.execute("ALTER TABLE workers ADD COLUMN proc_start TEXT")
+            jcols = {r[1] for r in con.execute("PRAGMA table_info(jobs)")}
+            if "exec_mark" not in jcols:  # migration: identity of the running execution's processes
+                con.execute("ALTER TABLE jobs ADD COLUMN exec_mark TEXT")
+                con.execute("ALTER TABLE jobs ADD COLUMN exec_pgid INTEGER")
 
     def connect(self) -> sqlite3.Connection:
         con = sqlite3.connect(self.path, timeout=30, isolation_level=None)

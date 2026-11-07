@@ -148,10 +148,11 @@ def _file_digest(path: Path) -> tuple[int, str]:
     return path.stat().st_size, h.hexdigest()
 
 
-def _read_verified(path: Path, root: str, label: str) -> bytes:
-    """Open without following a final symlink, check the opened file really lives under root, read it once."""
+def _read_verified(path: Path, root: str, label: str, max_bytes: int = 64 * 1024 * 1024) -> bytes:
+    """Open without following a final symlink (non-blocking: FIFOs cannot hang us), check the opened file
+    really lives under root and is a regular file within the size limit, read it once."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError as exc:
         if exc.errno == errno.ELOOP:
             raise StageFailure("INPUT_ESCAPES_ROOT", f"{label}: is a symlink; refused") from None
@@ -160,13 +161,19 @@ def _read_verified(path: Path, root: str, label: str) -> bytes:
         real = os.readlink(f"/proc/self/fd/{fd}") if os.path.isdir("/proc/self/fd") else os.path.realpath(path)
         if not real.startswith(root.rstrip("/") + "/"):
             raise StageFailure("INPUT_ESCAPES_ROOT", f"{label}: resolves outside the dataset root; refused")
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise StageFailure("INPUT_UNREADABLE", f"{label}: not a regular file")
-        chunks = []
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise StageFailure("INPUT_NOT_REGULAR", f"{label}: not a regular file")
+        if st.st_size > max_bytes:
+            raise StageFailure("INPUT_FILE_TOO_LARGE", f"{label}: exceeds {max_bytes} bytes")
+        chunks, read = [], 0
         while True:
             chunk = os.read(fd, 1 << 20)
             if not chunk:
                 break
+            read += len(chunk)
+            if read > max_bytes:
+                raise StageFailure("INPUT_FILE_TOO_LARGE", f"{label}: exceeds {max_bytes} bytes")
             chunks.append(chunk)
         return b"".join(chunks)
     except OSError as exc:
@@ -211,7 +218,8 @@ def run(run_dir: Path, emit: Emitter) -> dict:
     raw: dict[tuple[str, str], bytes] = {}
     for side, files in (("BEFORE", before_files), ("AFTER", after_files)):
         for name in sorted(files):
-            data = _read_verified(Path(files[name]), inputs["root"], f"{side}/{name}")
+            data = _read_verified(Path(files[name]), inputs["root"], f"{side}/{name}",
+                                  inputs.get("max_file_bytes", 64 * 1024 * 1024))
             raw[(side, name)] = data
             digest.update(f"{side}/{name}\0".encode())
             digest.update(hashlib.sha256(data).digest())

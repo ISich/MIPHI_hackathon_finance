@@ -125,6 +125,7 @@ class RunService:
                 "dataset_id": dataset["dataset_id"], "revision_id": revision["revision_id"],
                 "fingerprint": revision["fingerprint"], "mode": dataset["mode"],
                 "root": str(self.settings.data_roots[dataset["root"]].resolve()),
+                "max_file_bytes": self.settings.max_input_file_bytes,
                 "before": {k: str(v) for k, v in sorted(before.items())},
                 "after": {k: str(v) for k, v in sorted(after.items())},
             }

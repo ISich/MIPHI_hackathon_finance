@@ -217,11 +217,19 @@ def run_artifacts(run_id: str, request: Request):
     return svc.artifacts(owner, run_id)
 
 
-@router.get("/runs/{run_id}/artifacts/{artifact_id}", tags=["results"], responses=ERRORS)
+ARTIFACT_MEDIA = {".csv": "text/csv; charset=utf-8", ".json": "application/json", ".duckdb": "application/octet-stream"}
+_BINARY = {"type": "string", "format": "binary"}
+
+
+@router.get("/runs/{run_id}/artifacts/{artifact_id}", tags=["results"], response_class=FileResponse,
+            responses={**ERRORS, 200: {"description": "Artifact file: CSV (';', UTF-8 BOM), summary JSON or DuckDB mart",
+                                       "content": {"text/csv": {"schema": _BINARY},
+                                                   "application/octet-stream": {"schema": _BINARY},
+                                                   "application/json": {"schema": {"type": "object"}}}}})
 def download_artifact(run_id: str, artifact_id: str, request: Request):
     owner, _, svc = _ctx(request)
     path, name = svc.artifact_file(owner, run_id, artifact_id)
-    return FileResponse(path, filename=name)
+    return FileResponse(path, filename=name, media_type=ARTIFACT_MEDIA.get(path.suffix, "application/octet-stream"))
 
 
 # ------------------------------------------------- analytics via D4 DuckDBMart
