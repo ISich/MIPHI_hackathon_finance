@@ -1,4 +1,4 @@
-# QA suite dependencies. Core (D1/D4) is pinned to the verified SomeShit commit.
+# QA suite dependencies. Core (D1/D4) is pinned to the verified core commit.
 # Must equal the SHA in ./CORE_COMMIT (checked by tests/contracts/test_core_pin.py).
 decision-diff-core @ git+https://github.com/ISich/MIPHI_hackathon_finance@421da26caf030ce230778ffbd07ee1f72bf71217
 duckdb>=1.1,<2

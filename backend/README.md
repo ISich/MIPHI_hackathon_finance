@@ -2,7 +2,7 @@
 
 Platform runtime for the hackathon "СПР change analysis" project. It does **not** contain the
 normalizer/comparator/MartAPI/checks/HTML layout: those come unchanged from the D1/D4 core package
-`decision_diff` (branch `SomeShit`), pinned by commit in [`CORE_COMMIT`](CORE_COMMIT) and
+`decision_diff` (branch `core`), pinned by commit in [`CORE_COMMIT`](CORE_COMMIT) and
 [`requirements.txt`](requirements.txt).
 
 Stack: Python ≥ 3.11 (verified on **3.12.3**), FastAPI + Pydantic + Uvicorn, SQLite (WAL) for metadata,
@@ -26,7 +26,7 @@ python3 -m venv .venv                     # if ensurepip is missing: python3 -m 
 .venv/bin/python -m pip install -r requirements-dev.txt -e .   # exact versions: requirements.lock
 # after changing CORE_COMMIT: .venv/bin/python -m pip install --force-reinstall --no-deps -r requirements.txt
 scripts/fetch_core.sh                      # read-only checks/, examples/, tests/ of the pinned core commit -> .core/<sha>/
-                                           #   (git fetch from origin = ISich/MIPHI_hackathon_finance, branch SomeShit)
+                                           #   (git fetch from origin = ISich/MIPHI_hackathon_finance, branch core)
 ```
 
 `fetch_core.sh` uses `git archive` of the pinned commit from this repo's `origin`; nothing is copied into

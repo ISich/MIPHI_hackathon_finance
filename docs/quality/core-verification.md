@@ -1,6 +1,6 @@
 # Проверка ядра — реальный прогон, не эталон жюри
 
-Проверен commit `f269ecae51268e141609554ad5f9019df6df5481` ветки SomeShit в отдельном detached worktree; исходники не изменены, стенд не разворачивался. Установлены requirements-dev в отдельный venv, выполнен pytest: **10 passed in 0.06s**. Python: Python 3.14.9. Сеть/окружение frontend Mac этим не проверялись.
+Проверен commit `f269ecae51268e141609554ad5f9019df6df5481` ветки core в отдельном detached worktree; исходники не изменены, стенд не разворачивался. Установлены requirements-dev в отдельный venv, выполнен pytest: **10 passed in 0.06s**. Python: Python 3.14.9. Сеть/окружение frontend Mac этим не проверялись.
 
 ## Полный открытый набор
 

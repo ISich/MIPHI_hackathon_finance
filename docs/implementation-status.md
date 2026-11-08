@@ -4,7 +4,7 @@
 
 ## Прочитано в GitHub
 
-Ветка [`SomeShit`](https://github.com/ISich/MIPHI_hackathon_finance/tree/SomeShit), commit `f269ecae51268e141609554ad5f9019df6df5481`. Прочитаны дерево, README, NEXT_STEP, pyproject, requirements и segments.py; код в рамках docs-задачи не исполнялся. На момент проверки main содержал только README, открытых PR не было. Будущее состояние перепроверять перед интеграцией.
+Ветка [`core`](https://github.com/ISich/MIPHI_hackathon_finance/tree/core), commit `f269ecae51268e141609554ad5f9019df6df5481`. Прочитаны дерево, README, NEXT_STEP, pyproject, requirements и segments.py; код в рамках docs-задачи не исполнялся. На момент проверки main содержал только README, открытых PR не было. Будущее состояние перепроверять перед интеграцией.
 
 Найдены библиотека `decision_diff/` в корне (не src-layout), normalize/compare/normalize_pair, configs, segments, reporting/CLI и tests. Не переносить и не переписывать готовое ядро ради предложенного дерева docs. Архитектурное user-code-ограничение покрывать заменяемыми adapters/wrappers к библиотеке, а не зашивкой REAL в платформу. Актуальные команды ядра — README/NEXT_STEP **этой ветки**, не выдуманные инструкции нового приложения.
 
@@ -27,4 +27,4 @@
 
 D2 отвечает за единый storage driver/миграции/политику writer, D4 — analytics/MartAPI запросы; функции reader/compare/segments использовать из существующего пакета через заменяемый этап. При DuckDB не допустить неподдерживаемую многопроцессную запись в один файл: выбрать единый writer, отдельные Run DB либо другой проверенный режим.
 
-До merge docs/core интегратор разрешает ожидаемый конфликт корневых README и сохраняет инструкции обеих частей. Этот docs PR не мерджит `SomeShit`, не меняет source code и не деплоит стенд.
+До merge docs/core интегратор разрешает ожидаемый конфликт корневых README и сохраняет инструкции обеих частей. Этот docs PR не мерджит `core`, не меняет source code и не деплоит стенд.
