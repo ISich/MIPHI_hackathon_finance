@@ -8,6 +8,7 @@
 // shows a permanent MOCK banner. Never use it as evidence of E2E.
 // =============================================================================
 import type {
+  AiOpinion,
   CheckExecution,
   CheckRow,
   CheckRun,
@@ -242,6 +243,19 @@ export function createMockFetch(opts: MockOptions) {
   const checkRuns: MockCheckRun[] = [];
   const reports: Report[] = [];
   const docs = new Map<string, ReportChecks>();
+  const aiOpinions = new Map<string, { status: "PENDING" | "READY"; ticks: number }>();
+  function mockAiView(reportId: string, status: AiOpinion["status"]): AiOpinion {
+    const ready = status === "READY";
+    const facts = { "S:changed_apps": { id: "S:changed_apps", kind: "summary", name: "changed_apps", value: 1 }, C1: { id: "C1", kind: "check_row", label: "MOCK", result: "FAIL", confidence: "LOW" } };
+    return {
+      report_id: reportId, status, opinion_id: status === "NOT_REQUESTED" ? null : `ai_mock_${reportId.slice(-6)}`, model: "mock/model",
+      prompt_revision: "ai-opinion-v1", disabled_reason: null,
+      disclaimer: "MOCK: мнение языковой модели может быть ошибочным и не меняет результаты проверок.",
+      opinion: ready ? { summary: "MOCK: решение изменилось у единственной заявки; сигнал проверки основан на малой выборке.", findings: [{ title: "Малая выборка", text: "Строка FAIL получена на CONFIDENCE=LOW.", severity: "attention", refs: ["C1", "S:changed_apps"], unverified_numbers: [] }], limitations: ["MOCK-данные"] } : null,
+      validation: ready ? { findings_received: 1, findings_kept: 1, dropped: [] } : null, usage: ready ? { total_tokens: 1234 } : null,
+      error: null, facts: ready ? facts : null, created_at: status === "NOT_REQUESTED" ? null : NOW, finished_at: ready ? NOW : null, duration_seconds: ready ? 3.2 : null,
+    };
+  }
   const idem = new Map<string, string>();
 
   const scriptById = (sid: string) => scripts.find((s) => s.script_id === sid);
@@ -706,6 +720,18 @@ export function createMockFetch(opts: MockOptions) {
     if ((m = p.match(/^\/api\/reports\/([^/]+)$/))) {
       const r = reports.find((x) => x.report_id === m![1]);
       return r ? json(200, r) : err(404, "NOT_FOUND", "report not found");
+    }
+    if ((m = p.match(/^\/api\/reports\/([^/]+)\/ai-opinion$/))) {
+      const r = reports.find((x) => x.report_id === m![1]);
+      if (!r) return err(404, "NOT_FOUND", "report not found");
+      if (r.status !== "PUBLISHED") return err(409, "NOT_READY", "Report is not published", { report_id: r.report_id, status: r.status });
+      const prev = aiOpinions.get(r.report_id);
+      if (method === "POST") {
+        if (!prev || prev.status !== "READY" || body?.force) aiOpinions.set(r.report_id, { status: "PENDING", ticks: 0 });
+      } else if (prev?.status === "PENDING" && ++prev.ticks >= 2) {
+        prev.status = "READY";
+      }
+      return json(method === "POST" ? 202 : 200, mockAiView(r.report_id, aiOpinions.get(r.report_id)?.status ?? "NOT_REQUESTED"));
     }
     if ((m = p.match(/^\/api\/reports\/([^/]+)\/checks$/))) {
       const r = reports.find((x) => x.report_id === m![1]);

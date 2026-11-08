@@ -49,4 +49,4 @@ Owner scope проверяется на каждом route, group locator, code 
 
 D2/D3/D4 согласуют request/response examples и ошибки для каждого используемого route. В первом интеграционном срезе реальные POST Run → GET status/events → summary/checks на одной fixture. UI mocks маркированы и повторяют wire contract; не часть доказательства реального расчёта.
 
-Не добавлять сейчас LLM endpoints: пользователь отложил AI/Codex до завершения ядра. Не путать application `/api` с будущим upstream `/v1` модели.
+AI-мнение (FR-024): `GET /api/reports/{report_id}/ai-opinion` → статус `DISABLED | NOT_REQUESTED | PENDING | READY | FAILED` и готовое мнение; `POST` того же пути (body `{force}`) → 202, асинхронный запрос к модели; `GET .../ai-opinion/package` — ровно тот обезличенный пакет, что уходит в модель. Мнение хранится отдельно и не меняет `checks`/counts/PASS/FAIL. Upstream модели — OpenRouter (`DD_AI_BASE_URL`, OpenAI-совместимый `/chat/completions`), ключ только у backend.

@@ -19,6 +19,7 @@ import type {
   PivotResponse,
   Page,
   Readiness,
+  AiOpinion,
   Report,
   ReportChecks,
   ReportList,
@@ -343,6 +344,12 @@ export class ApiClient {
   }
   reportChecks(reportId: string): Promise<ReportChecks> {
     return this.request("GET", `/api/reports/${enc(reportId)}/checks`);
+  }
+  aiOpinion(reportId: string): Promise<AiOpinion> {
+    return this.request("GET", `/api/reports/${enc(reportId)}/ai-opinion`);
+  }
+  requestAiOpinion(reportId: string, force = false): Promise<AiOpinion> {
+    return this.request("POST", `/api/reports/${enc(reportId)}/ai-opinion`, { body: { force } });
   }
   reportHtmlUrl(reportId: string): string {
     return `${this.base}/api/reports/${enc(reportId)}/checks.html`;

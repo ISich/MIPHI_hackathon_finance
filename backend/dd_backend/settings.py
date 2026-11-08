@@ -10,6 +10,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 EXECUTION_MODES = ("builtin-only", "sandboxed", "trusted-local")
 # Modes in which workspace/file Python is executed at all (sandboxed: Landlock+seccomp, see sandbox.py).
 CUSTOM_EXECUTION_MODES = ("sandboxed", "trusted-local")
+AI_RESPONSE_FORMATS = ("json_schema", "json_object", "none")
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 
 
@@ -96,6 +97,13 @@ class Settings:
     max_check_result_bytes: int = field(default=16 * 1024 * 1024)
     max_report_bytes: int = field(default=64 * 1024 * 1024)
     allowed_hosts: frozenset = field(default=frozenset())
+    # AI opinion (FR-024). The API key is NOT part of Settings: ai_opinion.api_key() reads it at call time.
+    ai_base_url: str = field(default="https://openrouter.ai/api/v1")
+    ai_model: str = field(default="")
+    ai_timeout_seconds: int = field(default=90)
+    ai_max_output_tokens: int = field(default=2500)
+    ai_response_format: str = field(default="json_schema")
+    ai_openrouter_privacy: bool = field(default=True)
     sandbox_max_open_files: int = field(default=512)
 
     @property
@@ -142,6 +150,11 @@ def load_settings() -> Settings:
     if os.environ.get("DD_ALLOWED_ORIGINS"):
         raise SettingsError("DD_ALLOWED_ORIGINS was removed: cross-origin browser access is not supported. "
                             "Deploy UI and API same-origin (nginx /api -> backend, or a dev proxy keeping Host)")
+    ai_base = os.environ.get("DD_AI_BASE_URL", "").strip() or "https://openrouter.ai/api/v1"
+    _origin(ai_base)
+    ai_format = os.environ.get("DD_AI_RESPONSE_FORMAT", "").strip() or "json_schema"
+    if ai_format not in AI_RESPONSE_FORMATS:
+        raise SettingsError(f"DD_AI_RESPONSE_FORMAT must be one of {AI_RESPONSE_FORMATS}")
     ui_base = os.environ.get("DD_REPORT_UI_BASE", "http://127.0.0.1:5173")
     _origin(ui_base)  # validated: only used as the absolute link target inside HTML reports
     return Settings(
@@ -166,4 +179,10 @@ def load_settings() -> Settings:
         bind_host=os.environ.get("DD_BIND_HOST", "127.0.0.1"),
         expected_core_commit=(BACKEND_DIR / "CORE_COMMIT").read_text().strip(),
         sandbox_max_open_files=_int("DD_SANDBOX_MAX_OPEN_FILES", 512),
+        ai_base_url=ai_base,
+        ai_model=os.environ.get("DD_AI_MODEL", "").strip(),
+        ai_timeout_seconds=_int("DD_AI_TIMEOUT_SECONDS", 90),
+        ai_max_output_tokens=_int("DD_AI_MAX_OUTPUT_TOKENS", 2500),
+        ai_response_format=ai_format,
+        ai_openrouter_privacy=_bool("DD_AI_OPENROUTER_DENY_DATA_COLLECTION", True),
     )

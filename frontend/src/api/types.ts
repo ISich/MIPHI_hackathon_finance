@@ -405,6 +405,35 @@ export interface ReportChecks {
   executions: CheckExecution[];
 }
 
+export type AiOpinionStatus = "DISABLED" | "NOT_REQUESTED" | "PENDING" | "READY" | "FAILED";
+
+export interface AiFinding {
+  title: string;
+  text: string;
+  severity: "info" | "attention" | "concern";
+  refs: string[];
+  unverified_numbers: number[];
+}
+
+/** Separate AI block of a check report (FR-024): never changes counts / RESULT / CONFIDENCE. */
+export interface AiOpinion {
+  report_id: string;
+  status: AiOpinionStatus;
+  opinion_id: string | null;
+  model: string | null;
+  prompt_revision: string;
+  disclaimer: string;
+  disabled_reason: string | null;
+  opinion: { summary: string; findings: AiFinding[]; limitations: string[] } | null;
+  validation: { findings_received?: number; findings_kept?: number; dropped?: Array<Record<string, unknown>> } | null;
+  usage: Record<string, number | null> | null;
+  error: { code: string; message: string | null } | null;
+  facts: Record<string, Record<string, unknown>> | null;
+  created_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
+}
+
 export interface CheckRun {
   check_run_id: string;
   run_id: string;

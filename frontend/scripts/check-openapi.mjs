@@ -50,6 +50,8 @@ const ROUTES = [
   ["get", "/api/check-runs/{check_run_id}", "CheckRun"],
   ["get", "/api/reports/{report_id}/checks", "ReportChecks"],
   ["get", "/api/reports/{report_id}/checks.html", null],
+  ["get", "/api/reports/{report_id}/ai-opinion", "AiOpinion"],
+  ["post", "/api/reports/{report_id}/ai-opinion", "AiOpinion"],
 ];
 
 // Request bodies the UI sends: schema binding + the fields the client puts in the body.
@@ -61,6 +63,7 @@ const REQUESTS = {
   "post /api/scripts": { schema: "ScriptCreate", sends: ["kind", "name", "code", "params"] },
   "post /api/runs/{run_id}/check-runs": { schema: "CheckRunCreate", sends: ["checks"] },
   "post /api/runs/{run_id}/pivot-facts/applications": { schema: "PivotDrillDown", sends: ["group", "limit"] },
+  "post /api/reports/{report_id}/ai-opinion": { schema: "AiOpinionCreate", sends: ["force"] },
   "post /api/scripts/upload": { multipart: true, sends: ["kind", "name", "params", "file"] },
 };
 
@@ -84,6 +87,9 @@ const FIELDS = {
   ReportList: "initial_report_id:s items:a",
   Report: "report_id:s run_id:s status:s completeness:s?",
   CheckRun: "check_run_id:s run_id:s report_id:s status:s error:o?",
+  AiOpinion: "report_id:s status:s opinion_id:s? model:s? prompt_revision:s disclaimer:s disabled_reason:s? opinion:o? validation:o? usage:o? error:o? facts:o? created_at:s? finished_at:s? duration_seconds:n?",
+  AiOpinionBody: "summary:s findings:a limitations:a",
+  AiFinding: "title:s text:s severity:s refs:a unverified_numbers:a",
   ReportChecks: "report_id:s run_id:s check_run_id:s dataset_revision_id:s completeness:s checks:a diagnostics:a executions:a",
   ErrorBody: "code:s message:s details:o request_id:s",
 };

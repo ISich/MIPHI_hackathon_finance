@@ -19,6 +19,291 @@
     "title": "AccountUser",
     "type": "object"
    },
+   "AiError": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "message": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Message"
+     }
+    },
+    "required": [
+     "code",
+     "message"
+    ],
+    "title": "AiError",
+    "type": "object"
+   },
+   "AiFinding": {
+    "properties": {
+     "refs": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Refs",
+      "type": "array"
+     },
+     "severity": {
+      "enum": [
+       "info",
+       "attention",
+       "concern"
+      ],
+      "title": "Severity",
+      "type": "string"
+     },
+     "text": {
+      "title": "Text",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "unverified_numbers": {
+      "description": "Numbers in the text that do not occur in the sent facts",
+      "items": {
+       "type": "number"
+      },
+      "title": "Unverified Numbers",
+      "type": "array"
+     }
+    },
+    "required": [
+     "title",
+     "text",
+     "severity",
+     "refs",
+     "unverified_numbers"
+    ],
+    "title": "AiFinding",
+    "type": "object"
+   },
+   "AiOpinion": {
+    "description": "Separate AI block of a check report (FR-024). Never changes counts / RESULT / CONFIDENCE.",
+    "properties": {
+     "created_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created At"
+     },
+     "disabled_reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Disabled Reason"
+     },
+     "disclaimer": {
+      "title": "Disclaimer",
+      "type": "string"
+     },
+     "duration_seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Duration Seconds"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AiError"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "facts": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Depersonalised facts sent to the model, by id (READY only); refs point here",
+      "title": "Facts"
+     },
+     "finished_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Finished At"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model"
+     },
+     "opinion": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AiOpinionBody"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "opinion_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Opinion Id"
+     },
+     "prompt_revision": {
+      "title": "Prompt Revision",
+      "type": "string"
+     },
+     "report_id": {
+      "title": "Report Id",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "DISABLED",
+       "NOT_REQUESTED",
+       "PENDING",
+       "READY",
+       "FAILED"
+      ],
+      "title": "Status",
+      "type": "string"
+     },
+     "usage": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Usage"
+     },
+     "validation": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Validation"
+     }
+    },
+    "required": [
+     "report_id",
+     "status",
+     "opinion_id",
+     "model",
+     "prompt_revision",
+     "disclaimer",
+     "disabled_reason",
+     "opinion",
+     "validation",
+     "usage",
+     "error",
+     "facts",
+     "created_at",
+     "finished_at",
+     "duration_seconds"
+    ],
+    "title": "AiOpinion",
+    "type": "object"
+   },
+   "AiOpinionBody": {
+    "properties": {
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/AiFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+     },
+     "limitations": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     }
+    },
+    "required": [
+     "summary",
+     "findings",
+     "limitations"
+    ],
+    "title": "AiOpinionBody",
+    "type": "object"
+   },
+   "AiOpinionCreate": {
+    "additionalProperties": false,
+    "properties": {
+     "force": {
+      "default": false,
+      "description": "Ask again even if a READY opinion for the same facts exists",
+      "title": "Force",
+      "type": "boolean"
+     }
+    },
+    "title": "AiOpinionCreate",
+    "type": "object"
+   },
    "Artifact": {
     "properties": {
      "artifact_id": {
@@ -2791,6 +3076,292 @@
      }
     },
     "summary": "Get Report",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/reports/{report_id}/ai-opinion": {
+   "get": {
+    "operationId": "get_ai_opinion_api_reports__report_id__ai_opinion_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "report_id",
+      "required": true,
+      "schema": {
+       "title": "Report Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AiOpinion"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Content Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "AI opinion of this report: READY opinion or explicit DISABLED / NOT_REQUESTED / PENDING / FAILED",
+    "tags": [
+     "reports"
+    ]
+   },
+   "post": {
+    "operationId": "request_ai_opinion_api_reports__report_id__ai_opinion_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "report_id",
+      "required": true,
+      "schema": {
+       "title": "Report Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AiOpinionCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AiOpinion"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Content Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Request the AI opinion asynchronously (409 AI_DISABLED without key/model)",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/reports/{report_id}/ai-opinion/package": {
+   "get": {
+    "operationId": "get_ai_package_api_reports__report_id__ai_opinion_package_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "report_id",
+      "required": true,
+      "schema": {
+       "title": "Report Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Get Ai Package Api Reports  Report Id  Ai Opinion Package Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "403": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Forbidden"
+     },
+     "404": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Not Found"
+     },
+     "409": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Conflict"
+     },
+     "413": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "Content Too Large"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ErrorBody"
+        }
+       }
+      },
+      "description": "VALIDATION_ERROR envelope"
+     }
+    },
+    "summary": "Exactly the depersonalised fact package that is sent to the model (for review)",
     "tags": [
      "reports"
     ]

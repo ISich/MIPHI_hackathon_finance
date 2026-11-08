@@ -407,6 +407,28 @@ def report_checks(report_id: str, request: Request):
     return svc.report_document(owner, report_id)
 
 
+@router.get("/reports/{report_id}/ai-opinion", tags=["reports"], response_model=m.AiOpinion, responses=ERRORS,
+            summary="AI opinion of this report: READY opinion or explicit DISABLED / NOT_REQUESTED / PENDING / FAILED")
+def get_ai_opinion(report_id: str, request: Request):
+    owner, _, _ = _ctx(request)
+    return request.app.state.ai.view(owner, report_id)
+
+
+@router.get("/reports/{report_id}/ai-opinion/package", tags=["reports"], responses=ERRORS,
+            summary="Exactly the depersonalised fact package that is sent to the model (for review)")
+def get_ai_package(report_id: str, request: Request) -> dict:
+    owner, _, _ = _ctx(request)
+    return request.app.state.ai.package_for(owner, report_id)
+
+
+@router.post("/reports/{report_id}/ai-opinion", tags=["reports"], status_code=202, response_model=m.AiOpinion,
+             responses=ERRORS, summary="Request the AI opinion asynchronously (409 AI_DISABLED without key/model)")
+def request_ai_opinion(report_id: str, request: Request, body: m.AiOpinionCreate):
+    owner, _, _ = _ctx(request)
+    view, _started = request.app.state.ai.request(owner, report_id, force=body.force)
+    return JSONResponse(status_code=202, content=view)
+
+
 @router.get("/reports/{report_id}/checks.html", tags=["reports"], response_class=HTMLResponse, responses=ERRORS,
             summary="HTML snapshot rendered by D4 decision_diff.html_report for this exact report")
 def report_html(report_id: str, request: Request):
@@ -415,5 +437,7 @@ def report_html(report_id: str, request: Request):
     from decision_diff.html_report import render_html_report
     base = request.app.state.settings.report_ui_base.rstrip("/")
     html = render_html_report(doc, report_url=f"{base}/runs/{doc['run_id']}/reports/{report_id}")
+    from .ai_opinion import html_section, inject_html
+    html = inject_html(html, html_section(request.app.state.ai.view(owner, report_id)))
     return HTMLResponse(html, headers={"Content-Disposition": f'inline; filename="{report_id}.html"',
                                        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"})

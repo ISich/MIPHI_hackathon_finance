@@ -153,6 +153,8 @@ def create_app() -> FastAPI:
     app.state.signing_key = signing_key
     from .runs import RunService
     app.state.runs = RunService(settings, db, registry)
+    from .ai_opinion import AiOpinionService
+    app.state.ai = AiOpinionService(settings, db, app.state.runs)
     errors.install(app)
 
     @app.middleware("http")

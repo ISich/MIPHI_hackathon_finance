@@ -141,8 +141,8 @@ API в backend (CORS не поддерживается намеренно).
 
 ## Известные ограничения
 
-- Вкладка «Сводная» в UI шлёт устаревшую форму запроса `POST /api/runs/{id}/pivot` и получает 422 —
-  см. раздел «Ограничения» в [frontend/README.md](frontend/README.md).
+- Сводная в UI считает только ячейки текущей страницы, итогов по осям нет: см. раздел «Ограничения» в
+  [frontend/README.md](frontend/README.md).
 - Пользовательский Python: `sandboxed` — песочница ядра (Landlock + seccomp, без сети/exec/fork, только файлы своего
   запуска; можно публиковать), `trusted-local` — без sandbox, только на loopback. Таблица ограничений —
   [backend/README.md](backend/README.md#sandbox-restrictions-sandboxed-mode).
