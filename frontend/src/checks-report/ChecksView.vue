@@ -9,6 +9,7 @@ import ErrorView from "../components/ErrorView.vue";
 import { useApi, usePolling } from "../composables/useApi";
 import { timing } from "../config";
 import { href, navigate } from "../router";
+import AiOpinionPanel from "./AiOpinionPanel.vue";
 import ReportBody from "./ReportBody.vue";
 
 /**
@@ -70,7 +71,10 @@ const choose = (e: Event) =>
     <AsyncView v-else-if="listed" :value="checks" what="Загрузка результатов проверок">
       <template #default="{ data: d }">
         <ErrorView v-if="docError(d)" :error="docError(d)" />
-        <ReportBody v-else :doc="d" :run-id="run.run_id" />
+        <template v-else>
+          <ReportBody :doc="d" :run-id="run.run_id" />
+          <AiOpinionPanel :report-id="d.report_id" />
+        </template>
       </template>
     </AsyncView>
   </div>
