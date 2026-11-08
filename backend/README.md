@@ -275,7 +275,5 @@ procedures is not validated.
 - `GET /api/runs/{id}/applications/{app_id}` → application card of this run.
 
 ## Known gaps
-- The UI (`frontend/`) still sends the old pivot request shape (`rows/cols/filters[]/report_id`) to
-  `POST /api/runs/{id}/pivot`, which this API rejects with 422 `VALIDATION_ERROR`; see `frontend/README.md`.
 - No resume of interrupted runs (they are failed deterministically); no cancel endpoint.
 - Run directories are kept until removed manually (`$DD_HOME/runs/<run_id>`).
