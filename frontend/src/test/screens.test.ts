@@ -93,7 +93,8 @@ describe("Run monitor", () => {
     await w.setProps({ runId: b.run_id } as never);
     await waitFor(() => expect(byTestId(w, "run-status").textContent).toBe("COMPLETED"));
     await new Promise((r) => setTimeout(r, 150)); // let A's late response land
-    expect(document.querySelector("h1")!.textContent).toContain(b.run_id);
+    expect(document.querySelector(".run-page-id")!.textContent).toContain(b.run_id);
+    expect(document.querySelector("h1")!.textContent).toBe("t");
     expect(text(w)).toContain(b.initial_report_id);
     expect(text(w)).not.toContain(a.initial_report_id);
     w.unmount();
@@ -146,14 +147,14 @@ describe("Code links of later CheckRuns", () => {
     let cr = await testApi.createCheckRun(run.run_id, { checks: [...cfg.checks, { script_id: script.script_id }] }, "k-cr");
     for (let i = 0; i < 10 && cr.status !== "COMPLETED"; i++) cr = await testApi.checkRun(cr.check_run_id);
     const w = mnt(RunPage, { runId: run.run_id, tab: "monitor", query: new URLSearchParams() });
-    const summary = await waitFor(() => {
-      const s = [...document.querySelectorAll("summary")].find((x) => x.textContent === "код check-06");
-      if (!s) throw new Error("no check-06 link yet");
-      return s;
-    });
-    (summary.parentElement as HTMLDetailsElement).open = true;
-    summary.parentElement!.dispatchEvent(new Event("toggle"));
+    const trigger = await waitFor(() => button(w, "код check-06"));
+    const dialog = document.querySelector<HTMLDialogElement>('dialog[aria-label="Код check-06"]')!;
+    // jsdom does not implement the native dialog methods.
+    Object.defineProperty(dialog, "showModal", { value: () => dialog.setAttribute("open", "") });
+    await click(trigger);
     await waitFor(() => expect(text(w)).toContain("# LATER CHECK CODE"));
+    expect(dialog.open).toBe(true);
+    expect(dialog.closest("table")).toBeNull();
     expect(holder.calls.some((c) => c.url === `/api/check-runs/${cr.check_run_id}/code/check-06`)).toBe(true);
     expect(holder.calls.some((c) => c.url === `/api/runs/${run.run_id}/code/check-06`)).toBe(false);
     w.unmount();
@@ -174,7 +175,7 @@ describe("Explicit report context survives navigation", () => {
   it("run tabs keep ?report=", async () => {
     const run = await completedRun();
     const w = mnt(RunPage, { runId: run.run_id, tab: "checks", query: new URLSearchParams("report=rep_X") });
-    await waitFor(() => expect(link(w, "Сводная (pivot)").getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?report=rep_X`));
+    await waitFor(() => expect(link(w, "Сводная таблица").getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?report=rep_X`));
     expect(link(w, "Мониторинг").getAttribute("href")).toBe(`#/runs/${run.run_id}/monitor?report=rep_X`);
     w.unmount();
   });
@@ -267,6 +268,45 @@ describe("Summary", () => {
     expect(byTestId(w, "tile-changed").textContent).toContain("4");
     w.unmount();
   });
+  it("renders paths supplied by the summary API and links to changed applications", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => {
+      const response = await inner(url, init);
+      if (url !== `/api/runs/${run.run_id}/summary`) return response;
+      return new Response(JSON.stringify({ ...await response.json(), top_paths: [
+        { path: "decision.result.decision", changed_apps: 2 },
+        { path: "model.pd.name", changed_apps: 1 },
+      ] }), { status: 200 });
+    };
+    const w = mnt(SummaryView, { run });
+    await waitFor(() => table(w, "Чаще всего изменённые поля"));
+    const paths = table(w, "Чаще всего изменённые поля");
+    expect(paths.querySelectorAll("tbody tr")).toHaveLength(2);
+    const first = paths.querySelector("tbody tr")!;
+    expect(first.querySelector("a")!.textContent).toBe("decision.result.decision");
+    expect(first.querySelector("td.num")!.textContent).toBe("2");
+    expect(first.querySelector("a")!.getAttribute("href")).toBe(`#/runs/${run.run_id}/pivot?rows=PATH&f.PATH=decision.result.decision&f.DIFF_FLAG=1`);
+    w.unmount();
+  });
+  it("distinguishes no changed paths from an older server that omits them", async () => {
+    const run = await completedRun();
+    const inner = holder.fetch;
+    let topPaths: [] | undefined = [];
+    holder.fetch = async (url, init) => {
+      const response = await inner(url, init);
+      if (url !== `/api/runs/${run.run_id}/summary`) return response;
+      return new Response(JSON.stringify({ ...await response.json(), top_paths: topPaths }), { status: 200 });
+    };
+    const empty = mnt(SummaryView, { run });
+    await waitFor(() => expect(text(empty)).toContain("Изменений полей не обнаружено."));
+    empty.unmount();
+    topPaths = undefined;
+    const missing = mnt(SummaryView, { run });
+    await waitFor(() => expect(text(missing)).toContain("Список изменённых полей недоступен для этого запуска."));
+    expect(text(missing)).not.toContain("Изменений полей не обнаружено.");
+    missing.unmount();
+  });
 });
 
 describe("Checks", () => {
@@ -316,7 +356,7 @@ describe("Checks", () => {
     const w = mnt(ChecksView, { run, reportId: run.initial_report_id });
     await waitFor(() => expect(allByTestId(w, "check-execution").length).toBeGreaterThan(0));
     expect(holder.calls.some((c) => c.url === `/api/reports/${run.initial_report_id}/checks`)).toBe(true);
-    expect(link(w, "Скачать HTML-отчёт").getAttribute("href")).toBe(`/api/reports/${run.initial_report_id}/checks.html`);
+    expect(button(w, "Скачать HTML-отчёт").disabled).toBe(false);
     w.unmount();
   });
 });
@@ -349,17 +389,17 @@ describe("Checks report belongs to the displayed Run", () => {
 });
 
 describe("New check", () => {
-  it("in builtin-only mode saves the snapshot but shows the backend's honest refusal", async () => {
+  it("in builtin-only mode saves the check without offering an execution that the server rejects", async () => {
     const run = await completedRun();
     const w = mnt(NewCheck, { run });
     await waitFor(() => expect(byTestId(w, "exec-mode").textContent).toContain("builtin-only"));
-    await waitFor(() => expect(button(w, "Сохранить и запустить проверки").disabled).toBe(false));
-    await click(button(w, "Сохранить и запустить проверки"));
-    const alert = await waitFor(() => alertEl(w));
-    expect(alert.dataset.errorCode).toBe("CUSTOM_EXECUTION_DISABLED");
-    expect(alert.textContent).toContain("Исполнение пользовательского Python выключено на сервере");
+    expect(button(w, "Сохранить и запустить проверки").disabled).toBe(true);
+    await waitFor(() => expect(button(w, "Сохранить проверку").disabled).toBe(false));
+    expect(document.querySelector<HTMLTextAreaElement>("textarea.code")!.value).toContain("changed_share");
+    await click(button(w, "Сохранить проверку"));
+    await waitFor(() => expect(text(w)).toContain("Проверка сохранена"));
+    expect(holder.calls.some(c => c.url.endsWith("/check-runs"))).toBe(false);
     expect(window.location.hash).toBe("");
-    expect(text(w)).toContain("Скрипт уже сохранён");
     w.unmount();
   });
 
@@ -372,7 +412,8 @@ describe("New check", () => {
       expect(t.value).toContain("CHECK");
       return t;
     });
-    await typeInto(editor, "CHECK = {}");
+    const source = editor.value + "\n# My check\n";
+    await typeInto(editor, source);
     await waitFor(() => expect(button(w, "Сохранить и запустить проверки").disabled).toBe(false));
     await click(button(w, "Сохранить и запустить проверки"));
     await waitFor(() => expect(window.location.hash).toMatch(/checks\?report=rep_/), 3000);
@@ -382,7 +423,7 @@ describe("New check", () => {
     expect(JSON.parse(String(post.init!.body)).checks).toHaveLength(6); // 5 original + the new one in one common report
     expect((post.init!.headers as Record<string, string>)["Idempotency-Key"]).toBeTruthy();
     const created = holder.calls.find((c) => c.url === "/api/scripts" && c.init?.method === "POST")!;
-    expect(JSON.parse(String(created.init!.body))).toMatchObject({ kind: "check", code: "CHECK = {}" });
+    expect(JSON.parse(String(created.init!.body))).toMatchObject({ kind: "check", code: source });
     w.unmount();
   });
 
@@ -400,6 +441,68 @@ describe("New check", () => {
     const up = holder.calls.find((c) => c.url === "/api/scripts/upload")!;
     expect(up.init!.body).toBeInstanceOf(FormData);
     w.unmount();
+  });
+
+  it("uses server capabilities to enable execution in sandbox mode", async () => {
+    resetMock({ customExecution: true });
+    const inner = holder.fetch;
+    holder.fetch = async (url, init) => {
+      const response = await inner(url, init);
+      return url === "/ready" ? new Response(JSON.stringify({ ...await response.json(), execution_mode: "sandbox" }), { status: 200 }) : response;
+    };
+    const run = await completedRun();
+    const w = mnt(NewCheck, { run });
+    await waitFor(() => expect(byTestId(w, "exec-mode").textContent).toContain("sandbox"));
+    expect(byTestId(w, "exec-mode").textContent).not.toContain("доверенный локальный код");
+    await waitFor(() => expect(button(w, "Сохранить и запустить проверки").disabled).toBe(false));
+    await click(button(w, "Сохранить и запустить проверки"));
+    await waitFor(() => expect(window.location.hash).toMatch(/checks\?report=rep_/));
+    w.unmount();
+  });
+
+  it("retries a terminal CheckRun failure with a new key and reuses the saved script", async () => {
+    resetMock({ customExecution: true });
+    const run = await completedRun();
+    const inner = holder.fetch;
+    let failed = false;
+    holder.fetch = async (url, init) => {
+      const response = await inner(url, init);
+      if (url.endsWith("/check-runs") && init?.method === "POST" && !failed) {
+        failed = true;
+        return new Response(JSON.stringify({ ...await response.json(), status: "FAILED", error: { code: "TEMPORARY_FAILURE", message: "Temporary execution failure" } }), { status: 202 });
+      }
+      return response;
+    };
+    const w = mnt(NewCheck, { run });
+    await waitFor(() => expect(button(w, "Сохранить и запустить проверки").disabled).toBe(false));
+    await click(button(w, "Сохранить и запустить проверки"));
+    await waitFor(() => expect(alertEl(w).textContent).toContain("Temporary execution failure"));
+    await click(button(w, "Сохранить и запустить проверки"));
+    await waitFor(() => expect(window.location.hash).toMatch(/checks\?report=rep_/));
+    const attempts = holder.calls.filter(call => call.url.endsWith("/check-runs") && call.init?.method === "POST");
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]!.init!.headers).not.toEqual(attempts[1]!.init!.headers);
+    expect(holder.calls.filter(call => call.url === "/api/scripts" && call.init?.method === "POST")).toHaveLength(1);
+    w.unmount();
+  });
+
+  it("does not start a CheckRun when the editor is closed during a pending save", async () => {
+    resetMock({ customExecution: true });
+    const run = await completedRun();
+    const inner = holder.fetch;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    holder.fetch = async (url, init) => {
+      if (url === "/api/scripts" && init?.method === "POST") await gate;
+      return inner(url, init);
+    };
+    const w = mnt(NewCheck, { run });
+    await waitFor(() => expect(button(w, "Сохранить и запустить проверки").disabled).toBe(false));
+    await click(button(w, "Сохранить и запустить проверки"));
+    w.unmount();
+    release();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(holder.calls.some(call => call.url.endsWith("/check-runs"))).toBe(false);
   });
 
   it("rejects a non-.py upload in the browser", async () => {

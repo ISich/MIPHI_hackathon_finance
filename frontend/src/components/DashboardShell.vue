@@ -129,7 +129,7 @@ onUnmounted(() => {
       </header>
       <MockBanner v-if="IS_MOCK" />
       <main id="main-content" tabindex="-1"><slot /></main>
-      <footer class="workspace-footer"><span>СПР Аналитика <span class="footer-dot">·</span> Анализ изменений и контроль качества</span><span>Vue 3 <span class="footer-dot">/</span> {{ IS_MOCK ? 'MOCK · не реальные расчёты' : 'Данные текущей сессии' }}</span></footer>
+      <footer class="workspace-footer"><span>СПР Аналитика <span class="footer-dot">·</span> Анализ изменений и контроль качества</span></footer>
     </div>
   </div>
   <dialog ref="palette" class="command-palette" aria-labelledby="palette-title" @click="event => { if (event.target === palette) palette?.close(); }">

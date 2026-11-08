@@ -37,7 +37,9 @@ test("real: configuration → Run → monitor/events → summary → pivot → d
   const journal = page.getByRole("table", { name: "Журнал событий" });
   await expect(journal).toContainText("NORMALIZING");
   await journal.getByText(/^код normalize$/).first().click();
-  await expect(page.locator("pre.code-view").first()).toContainText("sha256");
+  const codeDialog = page.getByRole("dialog", { name: "Код normalize", exact: true });
+  await expect(codeDialog.locator("pre.code-view")).toContainText("sha256");
+  await codeDialog.getByRole("button", { name: "Закрыть код" }).click();
   await page.screenshot({ path: info.outputPath("real-monitor.png"), fullPage: true });
 
   const summary = await api<{ total_apps: number; changed_apps: number; decision_changed_apps: number }>(request, `/api/runs/${runId}/summary`);
@@ -46,7 +48,7 @@ test("real: configuration → Run → monitor/events → summary → pivot → d
   await expect(page.getByTestId("tile-changed")).toContainText(String(summary.changed_apps));
   await expect(page.getByTestId("tile-decision")).toContainText(String(summary.decision_changed_apps));
 
-  await page.getByRole("link", { name: "Сводная (pivot)" }).click();
+  await page.getByRole("link", { name: "Сводная таблица" }).click();
   const table = page.getByRole("table", { name: "Сводная таблица" });
   await expect(table).toBeVisible();
   const pending = page.waitForResponse(r => r.url().endsWith(`/api/runs/${runId}/pivot`) && r.request().method() === "POST");
@@ -108,21 +110,22 @@ test("real: another session cannot read this Run (owner scope)", async ({ page, 
   expect((await foreign.json()).code).toBe("NOT_FOUND");
 });
 
-test("real: new check — builtin-only refusal or trusted-local new report", async ({ page, browserErrors }, info) => {
+test("real: new check — save in builtin-only mode or execute with custom-code support", async ({ page }, info) => {
   // page.request shares the browser cookie = the same authenticated account session
   const request = page.request;
-  if (!TRUSTED) browserErrors.allow({ method: "POST", url: /^\/api\/runs\/[^/]+\/check-runs$/, status: 403 }); // documented refusal in builtin-only
   const runId = await startRealRun(page);
   await page.getByRole("link", { name: "Новая проверка" }).click();
   await page.getByText("Контракт проверки").click();
   await page.getByRole("button", { name: "Вставить пример" }).click();
   await page.getByLabel("Название").fill("e2e changed share");
-  await page.getByRole("button", { name: "Сохранить и запустить проверки" }).click();
   if (!TRUSTED) {
     await expect(page.getByTestId("exec-mode")).toContainText("builtin-only");
-    await expect(page.locator('[data-error-code="CUSTOM_EXECUTION_DISABLED"]')).toContainText("выключено на сервере");
+    await expect(page.getByRole("button", { name: "Сохранить и запустить проверки" })).toBeDisabled();
+    await page.getByRole("button", { name: "Сохранить проверку", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Проверка сохранена");
     return;
   }
+  await page.getByRole("button", { name: "Сохранить и запустить проверки" }).click();
   await expect(page).toHaveURL(/checks\?report=/, { timeout: 120_000 });
   const reportId = decodeURIComponent(page.url().split("report=")[1]!);
   const run = await api<{ initial_report_id: string }>(request, `/api/runs/${runId}`);

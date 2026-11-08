@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { api } from "../api/instance";
 import ActivityChart from "../components/ActivityChart.vue";
 import AppIcon from "../components/AppIcon.vue";
@@ -12,8 +12,11 @@ import { activityByDay, formatDuration, formatRunDate, selectRuns, type RunFilte
 
 defineProps<{ overview?: boolean }>();
 const runs = useApi(() => "runs", () => api.runsPage());
+const configurations = useApi(() => "configurations", () => api.configurations());
+const configurationNames = computed(() => new Map((configurations.data ?? []).map(configuration => [configuration.config_id, configuration.name])));
 const query = ref("");
 const filter = ref<RunFilter>("all");
+const historyPanel = ref<HTMLElement | null>(null);
 const today = ref(new Date());
 let dateTimer: ReturnType<typeof setInterval>;
 onMounted(() => { dateTimer = setInterval(() => { today.value = new Date(); }, 60_000); });
@@ -22,13 +25,13 @@ const all = computed(() => runs.data?.items ?? []);
 const total = computed(() => runs.data?.total ?? 0);
 const partial = computed(() => total.value > all.value.length);
 const scope = computed(() => partial.value ? `Среди последних ${all.value.length}` : "Все запуски аккаунта");
-const filtered = computed(() => selectRuns(all.value, query.value, filter.value));
+const filtered = computed(() => selectRuns(all.value, query.value, filter.value, configurationNames.value));
 const days = computed(() => activityByDay(all.value, today.value));
 const activeCount = computed(() => all.value.filter(run => run.status === "RUNNING" || run.status === "QUEUED").length);
 const metrics = computed(() => [
   { label: "Всего запусков", value: total.value, icon: "runs", detail: "В аккаунте", filter: "all" as const, tone: "neutral" },
-  { label: "Завершено", value: all.value.filter(run => run.status === "COMPLETED").length, icon: "check", detail: scope.value, filter: "completed" as const, tone: "success" },
   { label: "В работе", value: activeCount.value, icon: "activity", detail: scope.value, filter: "active" as const, tone: "accent" },
+  { label: "Завершено", value: all.value.filter(run => run.status === "COMPLETED").length, icon: "check", detail: scope.value, filter: "completed" as const, tone: "success" },
   { label: "С ошибкой", value: all.value.filter(run => run.status === "FAILED").length, icon: "warning", detail: scope.value, filter: "failed" as const, tone: "danger" },
 ]);
 const filters: Array<{ value: RunFilter; label: string }> = [
@@ -40,6 +43,14 @@ usePolling(
   async () => runs.reload(),
 );
 function resetFilters() { query.value = ""; filter.value = "all"; }
+async function selectMetric(value: RunFilter) {
+  filter.value = value;
+  await nextTick();
+  historyPanel.value?.scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+    block: "start",
+  });
+}
 </script>
 
 <template>
@@ -51,12 +62,12 @@ function resetFilters() { query.value = ""; filter.value = "all"; }
     <div class="view-toolbar"><span class="period-label"><AppIcon name="calendar" :size="17" />{{ today.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) }}</span><span class="toolbar-note"><span class="live-dot" :class="{ 'is-active': activeCount > 0 }" />{{ activeCount ? 'Активные запуски обновляются автоматически' : 'Данные аккаунта' }}</span></div>
     <AsyncView :value="runs" what="Загрузка запусков">
       <template #default>
-        <div class="metric-grid" aria-label="Показатели запусков"><button v-for="metric in metrics" :key="metric.label" class="metric-card" :class="`metric-${metric.tone}`" :aria-pressed="filter === metric.filter" @click="filter = metric.filter"><span class="metric-top"><span class="metric-icon"><AppIcon :name="metric.icon" :size="19" /></span><AppIcon name="arrow" :size="16" /></span><span class="metric-label">{{ metric.label }}</span><strong class="metric-value">{{ metric.value.toLocaleString('ru-RU') }}</strong><span class="metric-detail">{{ metric.detail }}</span></button></div>
+        <div class="metric-grid" aria-label="Показатели запусков"><button v-for="metric in metrics" :key="metric.label" class="metric-card" :class="`metric-${metric.tone}`" :aria-pressed="filter === metric.filter" @click="selectMetric(metric.filter)"><span class="metric-top"><span class="metric-icon"><AppIcon :name="metric.icon" :size="19" /></span><AppIcon name="arrow" :size="16" /></span><span class="metric-label">{{ metric.label }}</span><strong class="metric-value">{{ metric.value.toLocaleString('ru-RU') }}</strong><span class="metric-detail">{{ metric.detail }}</span></button></div>
         <p v-if="partial" class="muted" role="note">Загружены последние {{ all.length }} из {{ total }} запусков. Статусы, график, поиск и фильтры учитывают только эти запуски.</p>
         <ActivityChart v-if="overview" :days="days" :scope="partial ? `По последним ${all.length} запускам` : undefined" />
-        <section class="runs-panel" aria-labelledby="runs-table-title">
+        <section ref="historyPanel" class="runs-panel" aria-labelledby="runs-table-title">
           <div class="panel-heading"><div><h2 id="runs-table-title">{{ overview ? 'Последние запуски' : 'История запусков' }} <span class="count-badge">{{ all.length }}</span></h2><p class="muted">Выберите запуск, чтобы исследовать изменения и результаты проверок.</p></div><button class="button refresh-button" :disabled="runs.loading" @click="runs.reload()"><AppIcon name="refresh" :size="15" />Обновить</button></div>
-          <div class="runs-filters"><div class="filter-tabs" role="group" aria-label="Фильтр статуса"><button v-for="item in filters" :key="item.value" :class="{ selected: filter === item.value }" :aria-pressed="filter === item.value" @click="filter = item.value">{{ item.label }}</button></div><label class="search-field"><AppIcon name="search" :size="16" /><span class="sr-only">Поиск запусков</span><input v-model="query" type="search" placeholder="Поиск по ID, данным…" /></label></div>
+          <div class="runs-filters"><div class="filter-tabs" role="group" aria-label="Фильтр статуса"><button v-for="item in filters" :key="item.value" :class="{ selected: filter === item.value }" :aria-pressed="filter === item.value" @click="filter = item.value">{{ item.label }}</button></div><label class="search-field"><AppIcon name="search" :size="16" /><span class="sr-only">Поиск запусков</span><input v-model="query" type="search" placeholder="Название, ID, данные…" /></label></div>
         <div v-if="filtered.length" class="table-wrap runs-table-wrap"><table class="table runs-table" aria-label="Список запусков">
           <thead>
             <tr>
@@ -71,13 +82,13 @@ function resetFilters() { query.value = ""; filter.value = "all"; }
           </thead>
           <tbody>
             <tr v-for="r in filtered" :key="r.run_id">
-              <td><a class="run-id" :href="href('runs', r.run_id)"><span class="run-table-icon"><AppIcon name="runs" :size="16" /></span>{{ r.run_id }}</a><span class="run-dataset">{{ r.dataset_id }}</span></td>
+              <td><a class="run-id" :href="href('runs', r.run_id)"><span class="run-table-icon"><AppIcon name="runs" :size="16" /></span>{{ configurationNames.get(r.config_id) || 'Запуск' }}</a><code class="run-reference-id">{{ r.run_id }}</code><span class="run-dataset">{{ r.dataset_id }}</span></td>
               <td><RunStatusBadge :status="r.status" /></td>
               <td>{{ r.stage ?? "—" }}</td>
-              <td><code>{{ r.config_id }}</code></td>
+              <td><span>{{ configurationNames.get(r.config_id) || 'Конфигурация' }}</span><code class="run-reference-id">{{ r.config_id }}</code></td>
               <td><time :datetime="r.created_at" :title="r.created_at">{{ formatRunDate(r.created_at) }}</time></td>
               <td class="duration-cell">{{ formatDuration(r) }}</td>
-              <td><a class="icon-button" :href="href('runs', r.run_id)" :aria-label="`Открыть запуск ${r.run_id}`"><AppIcon name="arrow" :size="17" /></a></td>
+              <td><a class="icon-button" :href="href('runs', r.run_id)" :aria-label="`Открыть запуск ${configurationNames.get(r.config_id) || r.run_id}`"><AppIcon name="arrow" :size="17" /></a></td>
             </tr>
           </tbody>
         </table></div>

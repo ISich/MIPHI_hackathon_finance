@@ -11,7 +11,7 @@ import PivotControls from "./PivotControls.vue";
 import PivotTable from "./PivotTable.vue";
 import { parsePivotQuery, pivotQuery, pivotRequest, type PivotState } from "./query";
 
-const props = defineProps<{ run: Run; query: URLSearchParams }>();
+const props = defineProps<{ run: Run; query: URLSearchParams; runName?: string }>();
 const state = computed(() => parsePivotQuery(props.query));
 const qs = computed(() => pivotQuery(state.value));
 const reportCtx = computed(() => props.query.get("report"));
@@ -34,7 +34,7 @@ const checksHref = computed(() => `${href("runs", props.run.run_id, "checks")}?r
 <template>
   <div>
     <p v-if="reportCtx" class="state state-ok" data-testid="report-context">
-      Открыто из отчёта <code>{{ reportCtx }}</code> — сводная Run <code>{{ run.run_id }}</code>.
+      Открыто из отчёта <code>{{ reportCtx }}</code> — сводная запуска «{{ runName || 'Запуск' }}» (<code>{{ run.run_id }}</code>).
       <a :href="checksHref">Проверки этого отчёта</a>
     </p>
     <template v-if="unavailable">

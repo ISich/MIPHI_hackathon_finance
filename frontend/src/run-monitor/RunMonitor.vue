@@ -4,8 +4,9 @@ import { slotOfCodeRef } from "../api/client";
 import { RUN_STAGES, type Run, type RunEvent } from "../api/types";
 import ProgressBar from "../components/ProgressBar.vue";
 import CodeSnapshotLink from "./CodeSnapshotLink.vue";
+import { formatEventTime } from "./presentation";
 
-const props = defineProps<{ run: Run; events: RunEvent[] }>();
+const props = defineProps<{ run: Run; events: RunEvent[]; configurationName?: string }>();
 const stageIdx = computed(() => RUN_STAGES.indexOf(props.run.stage as (typeof RUN_STAGES)[number]));
 const stageClass = (i: number) => (i < stageIdx.value || props.run.status === "COMPLETED" ? "done" : i === stageIdx.value ? "current" : "");
 </script>
@@ -18,7 +19,7 @@ const stageClass = (i: number) => (i < stageIdx.value || props.run.status === "C
       <dt>Этап</dt>
       <dd data-testid="run-stage">{{ run.stage ?? "—" }}{{ run.substep ? ` / ${run.substep}` : "" }}</dd>
       <dt>Конфигурация</dt>
-      <dd>{{ run.config_id }}</dd>
+      <dd><span v-if="configurationName">{{ configurationName }}</span><code class="run-reference-id">{{ run.config_id }}</code></dd>
       <dt>Dataset revision</dt>
       <dd>{{ run.dataset_revision_id }}</dd>
       <dt>Initial report</dt>
@@ -41,9 +42,9 @@ const stageClass = (i: number) => (i < stageIdx.value || props.run.status === "C
       <tbody>
         <tr v-for="e in events" :key="e.seq" :class="`level-${String(e.level).toLowerCase()}`">
           <td>{{ e.seq }}</td>
-          <td>{{ e.ts }}</td>
+          <td><time class="run-event-time" :datetime="e.ts" :title="e.ts">{{ formatEventTime(e.ts) }}</time></td>
           <td>{{ e.stage ?? "" }}{{ e.substep ? ` / ${e.substep}` : "" }}</td>
-          <td>{{ e.level }}</td>
+          <td class="run-event-level">{{ e.level }}</td>
           <td>{{ e.message }}</td>
           <td><CodeSnapshotLink v-if="slotOfCodeRef(e.code_ref)" :run-id="run.run_id" :slot="slotOfCodeRef(e.code_ref)!" :check-run-id="e.check_run_id" /></td>
         </tr>

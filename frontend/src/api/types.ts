@@ -228,6 +228,7 @@ export interface Summary {
   change_types: Record<string, number>;
   approval_rate_before: number;
   approval_rate_after: number;
+  /** Up to 20 paths, ranked by distinct changed applications; absent only on older servers. */
   top_paths?: Array<{ path: string; changed_apps: number }>;
   artifacts?: Artifact[];
   [k: string]: unknown;

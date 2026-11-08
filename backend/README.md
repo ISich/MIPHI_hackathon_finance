@@ -129,6 +129,14 @@ curl -s -b $J $B/api/runs/<run_id>/checks                               # initia
 ```
 Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also served at `/openapi.json`).
 
+The run summary includes `top_paths`: up to 20 objects of the form
+`{"path": "decisionResult.decision", "changed_apps": 12}`. Counts are distinct
+applications with `DIFF_FLAG = 1`, so repeated array entries do not inflate them.
+Paths are ordered by count descending, then path ascending; no changes produces
+`[]`. New runs store this list in `summary.json`. For older completed runs, the
+summary API calculates it from their existing mart without rewriting artifacts.
+To drill down, filter the pivot by both `PATH` and `DIFF_FLAG = 1`.
+
 ## Environment variables (no secrets are needed or read)
 
 | Variable | Default | Meaning |

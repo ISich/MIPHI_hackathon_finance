@@ -9,7 +9,15 @@ import SummaryTile from "./SummaryTile.vue";
 const props = defineProps<{ run: Run }>();
 const s = useApi(() => `summary:${props.run.run_id}`, () => api.summary(props.run.run_id));
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
-const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?rows=PATH&f.PATH=${encodeURIComponent(path)}`;
+const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?rows=PATH&f.PATH=${encodeURIComponent(path)}&f.DIFF_FLAG=1`;
+const artifactDetails: Record<string, { filename: string; description: string }> = {
+  normalized_union: { filename: "normalized_union.csv", description: "Поля и значения исходных документов в едином формате, с отметкой «до» или «после»." },
+  comparison: { filename: "comparison.csv", description: "Сравнение полей заявок: путь к полю, значения до и после, тип изменения." },
+  segments: { filename: "segments.csv", description: "Признаки заявок для группировки и анализа: решения, продукты, модели и другие параметры." },
+  pivot_facts: { filename: "pivot_facts.csv", description: "Данные для сводных таблиц: группы полей, значения и количество уникальных заявок." },
+  summary: { filename: "summary.json", description: "Итоговые показатели запуска: количество заявок, изменений и смен решений." },
+  mart: { filename: "mart.duckdb", description: "База результатов для сводных таблиц, фильтрации и детализации по заявкам." },
+};
 </script>
 
 <template>
@@ -36,9 +44,12 @@ const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?ro
             </tr>
           </tbody>
         </table></div>
+        <section class="summary-paths">
+        <h2>Чаще всего изменённые поля</h2>
         <template v-if="d.top_paths?.length">
-          <h2>Top PATH</h2>
-          <div class="table-wrap"><table class="table" aria-label="Top PATH">
+          <p class="muted">До 20 полей по числу изменённых заявок. Нажмите на путь к полю, чтобы открыть подробности.</p>
+          <div class="table-wrap"><table class="table" aria-label="Чаще всего изменённые поля">
+            <thead><tr><th>Путь к полю</th><th class="num">Изменённых заявок</th></tr></thead>
             <tbody>
               <tr v-for="t in d.top_paths" :key="t.path">
                 <td><a :href="topHref(t.path)">{{ t.path }}</a></td>
@@ -47,7 +58,9 @@ const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?ro
             </tbody>
           </table></div>
         </template>
-        <p v-else class="muted">Top PATH backend пока не отдаёт.</p>
+        <p v-else-if="d.top_paths" class="muted">Изменений полей не обнаружено.</p>
+        <p v-else class="muted">Список изменённых полей недоступен для этого запуска.</p>
+        </section>
         <h2>Полнота проверок</h2>
         <p data-testid="completeness">
           {{ run.checks_completeness ?? "—" }}{{ run.checks_completeness === "INCOMPLETE" ? " — часть проверок не исполнилась, см. «Проверки»" : ""
@@ -56,9 +69,10 @@ const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?ro
         <template v-if="d.artifacts?.length">
           <h2>Артефакты</h2>
           <div class="table-wrap"><table class="table" aria-label="Артефакты">
+            <thead><tr><th>Файл и описание</th><th class="num">Строк</th><th class="num">Размер</th><th>Скачать</th></tr></thead>
             <tbody>
               <tr v-for="a in d.artifacts" :key="a.artifact_id">
-                <td>{{ a.kind }}</td>
+                <td><code>{{ artifactDetails[a.kind]?.filename ?? a.kind }}</code><p class="artifact-description">{{ artifactDetails[a.kind]?.description ?? 'Дополнительный файл результатов этого запуска.' }}</p></td>
                 <td class="num">{{ a.rows ?? "—" }} строк</td>
                 <td class="num">{{ a.bytes }} байт</td>
                 <td><a :href="a.download">скачать</a></td>
@@ -70,3 +84,7 @@ const topHref = (path: string) => `${href("runs", props.run.run_id, "pivot")}?ro
     </template>
   </AsyncView>
 </template>
+
+<style scoped>
+.summary-paths { margin-block: 24px; }
+</style>

@@ -23,7 +23,7 @@ defineProps<{ rows: CheckRow[]; runId: string; label: string }>();
         <tr v-for="(r, i) in rows" :key="i" :class="{ low: r.CONFIDENCE === 'LOW' }" :data-result="r.RESULT" :data-confidence="r.CONFIDENCE">
           <td><ResultBadge :result="r.RESULT" :low="r.CONFIDENCE === 'LOW'" /></td>
           <td>{{ r.SOURCE }}</td>
-          <td>
+          <td class="check-argument">
             <template v-if="r.ARGUMENT">{{ r.ARGUMENT }}</template>
             <span v-else class="muted">—</span>
           </td>

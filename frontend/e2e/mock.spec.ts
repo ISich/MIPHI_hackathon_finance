@@ -2,6 +2,7 @@
 // calculation. Real backend E2E lives in real.spec.ts.
 import { test, expect } from "./guard";
 import type { Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { signIn } from "./login";
 
 async function startRun(page: Page) {
@@ -20,7 +21,7 @@ test("configuration → monitor → summary → pivot → drill-down → applica
   await page.getByRole("link", { name: "Сводка" }).click();
   await expect(page.getByTestId("tile-total")).toContainText("6");
 
-  await page.getByRole("link", { name: "Сводная (pivot)" }).click();
+  await page.getByRole("link", { name: "Сводная таблица" }).click();
   const facts = page.getByRole("table", { name: "Сводная таблица" });
   await facts.getByRole("link").first().click();
   await expect(page.getByTestId("group-total")).toContainText("Всего различных заявок");
@@ -33,16 +34,29 @@ test("configuration → monitor → summary → pivot → drill-down → applica
   await expect(page.getByTestId("check-execution")).toHaveCount(5);
   await expect(page.locator('[data-exec-status="ERROR"]')).toContainText("это не FAIL");
   await expect(page.getByTestId("check-summary")).toContainText("ошибок исполнения: 1");
+  const downloadReady = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Скачать HTML-отчёт", exact: true }).click();
+  const download = await downloadReady;
+  const output = info.outputPath(download.suggestedFilename());
+  await download.saveAs(output);
+  const exported = await page.context().newPage();
+  await exported.setContent(await readFile(output, "utf8"));
+  await expect(exported.getByRole("table", { name: "Результаты всех проверок" })).toBeVisible();
+  await expect(exported.locator("thead th")).toHaveCount(7);
+  await expect(exported.locator("tbody tr")).toHaveCount(4);
+  await expect(exported.getByText(/Демонстрационный отчёт:/)).toBeVisible();
+  await expect(exported.getByText(/Проверки выполнены не полностью/)).toBeVisible();
+  await exported.close();
   await page.screenshot({ path: info.outputPath("checks.png"), fullPage: true });
 });
 
-test("new check in builtin-only mode: honest refusal from backend", async ({ page }) => {
+test("new check in builtin-only mode: save is available and unsupported execution is disabled", async ({ page }) => {
   await startRun(page);
   await page.getByRole("link", { name: "Новая проверка" }).click();
   await expect(page.getByTestId("exec-mode")).toContainText("builtin-only");
-  await page.getByRole("button", { name: "Сохранить и запустить проверки" }).click();
-  const alert = page.locator('[data-error-code="CUSTOM_EXECUTION_DISABLED"]');
-  await expect(alert).toContainText("Исполнение пользовательского Python выключено на сервере");
+  await expect(page.getByRole("button", { name: "Сохранить и запустить проверки" })).toBeDisabled();
+  await page.getByRole("button", { name: "Сохранить проверку", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Проверка сохранена");
 });
 
 test("new check with trusted-local: editor → snapshot → check-run → new report opens", async ({ page }, info) => {
@@ -73,7 +87,7 @@ test("upload .py in workspace and see it in the procedure slot", async ({ page }
 test("deep link from HTML report opens the pivot of that Run", async ({ page }) => {
   await signIn(page, "/runs/run_x/reports/rep_y");
   await expect(page).toHaveURL(/#\/runs\/run_x\/pivot\?report=rep_y/);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("run_x");
+  await expect(page.locator(".run-page-id")).toContainText("run_x");
 });
 
 test("per-application HTML link keeps the application and report through sign-in and back navigation", async ({ page }) => {

@@ -6,7 +6,7 @@ import ChecksView from "../checks-report/ChecksView.vue";
 import ErrorView from "../components/ErrorView.vue";
 import LoadingView from "../components/LoadingView.vue";
 import RunStatusBadge from "../components/RunStatusBadge.vue";
-import { usePolling } from "../composables/useApi";
+import { useApi, usePolling } from "../composables/useApi";
 import { timing } from "../config";
 import NewCheck from "../editor/NewCheck.vue";
 import PivotView from "../pivot/PivotView.vue";
@@ -17,7 +17,7 @@ import RunMonitor from "./RunMonitor.vue";
 const TABS = [
   ["monitor", "Мониторинг"],
   ["summary", "Сводка"],
-  ["pivot", "Сводная (pivot)"],
+  ["pivot", "Сводная таблица"],
   ["checks", "Проверки"],
   ["new-check", "Новая проверка"],
 ] as const;
@@ -27,6 +27,8 @@ type Tab = (typeof TABS)[number][0];
 const props = defineProps<{ runId: string; tab?: string; query: URLSearchParams }>();
 
 const run = shallowRef<Run | undefined>();
+const configuration = useApi(() => run.value?.config_id ?? null, () => api.configuration(run.value!.config_id));
+const runName = computed(() => configuration.data?.name?.trim() || "Запуск");
 const error = ref<unknown>(null);
 const events = shallowRef<RunEvent[]>([]);
 const reports = shallowRef<Report[]>([]);
@@ -107,9 +109,12 @@ const selected = computed<Tab>(
 <template>
   <section>
     <p><a :href="href('runs')">← Запуски</a></p>
-    <h1>
-      Run <code>{{ runId }}</code>{{ " " }}<RunStatusBadge v-if="run" :status="run.status" />
-    </h1>
+    <div class="run-page-heading">
+      <div class="run-title-row">
+        <div class="run-title-text"><h1>{{ runName }}</h1><p class="run-page-id">ID запуска: <code>{{ runId }}</code></p></div>
+        <RunStatusBadge v-if="run" :status="run.status" />
+      </div>
+    </div>
     <ErrorView v-if="error && !run" :error="error" />
     <div v-if="error && run" class="muted">Ошибка обновления статуса, повторяю…</div>
     <LoadingView v-if="!run && !error" what="Загрузка статуса" />
@@ -120,9 +125,9 @@ const selected = computed<Tab>(
           <a v-else :class="['tab', { active: selected === t }]" :href="href('runs', runId, t) + reportSuffix" :aria-current="selected === t ? 'page' : undefined">{{ label }}</a>
         </template>
       </nav>
-      <RunMonitor v-if="selected === 'monitor' || !completed" :run="run" :events="events" />
+      <RunMonitor v-if="selected === 'monitor' || !completed" :run="run" :events="events" :configuration-name="configuration.data?.name" />
       <SummaryView v-else-if="selected === 'summary'" :run="run" />
-      <PivotView v-else-if="selected === 'pivot'" :run="run" :query="query" />
+      <PivotView v-else-if="selected === 'pivot'" :run="run" :query="query" :run-name="runName" />
       <ChecksView v-else-if="selected === 'checks'" :run="run" :report-id="query.get('report')" />
       <NewCheck v-else :run="run" />
       <ul v-if="selected === 'monitor' && reports.length" aria-label="Отчёты запуска">

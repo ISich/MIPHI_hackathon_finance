@@ -14,7 +14,7 @@ const passRows = computed(() => props.doc.checks.filter((r) => r.RESULT === "PAS
 </script>
 
 <template>
-  <div>
+  <div class="check-report">
     <p class="check-summary" data-testid="check-summary">
       Отчёт <code>{{ doc.report_id }}</code>, полнота: <strong>{{ doc.completeness }}</strong>. Проверок: {{ doc.executions.length }}; строк FAIL:
       {{ failRows }}, PASS: {{ passRows

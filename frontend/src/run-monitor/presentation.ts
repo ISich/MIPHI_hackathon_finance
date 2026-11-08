@@ -2,11 +2,11 @@ import type { Run } from "../api/types";
 
 export type RunFilter = "all" | "active" | "completed" | "failed";
 
-export function selectRuns(runs: Run[], query: string, filter: RunFilter): Run[] {
+export function selectRuns(runs: Run[], query: string, filter: RunFilter, configurationNames?: ReadonlyMap<string, string>): Run[] {
   const term = query.trim().toLocaleLowerCase("ru");
   return runs.filter(run => {
     const matchesStatus = filter === "all" || (filter === "active" && (run.status === "RUNNING" || run.status === "QUEUED")) || (filter === "completed" && run.status === "COMPLETED") || (filter === "failed" && run.status === "FAILED");
-    return matchesStatus && `${run.run_id} ${run.config_id} ${run.dataset_id} ${run.status} ${run.stage ?? ""}`.toLocaleLowerCase("ru").includes(term);
+    return matchesStatus && `${configurationNames?.get(run.config_id) ?? ""} ${run.run_id} ${run.config_id} ${run.dataset_id} ${run.status} ${run.stage ?? ""}`.toLocaleLowerCase("ru").includes(term);
   }).sort((first, second) => Date.parse(second.created_at) - Date.parse(first.created_at) || first.run_id.localeCompare(second.run_id));
 }
 
@@ -24,6 +24,22 @@ export function activityByDay(runs: Run[], now: Date, days = 7) {
 export function formatRunDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const eventTimeFormatter = new Intl.DateTimeFormat("ru-RU", {
+  timeZone: "Europe/Moscow",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+export function formatEventTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : `${eventTimeFormatter.format(date)} МСК`;
 }
 
 export function formatDuration(run: Run) {

@@ -23,6 +23,7 @@ from time import perf_counter
 from typing import Any, Callable
 
 from .registry import COMPARISON_COLUMNS, NORMALIZED_COLUMNS, PIVOT_COLUMNS, SEGMENT_COLUMNS
+from .summary import top_changed_paths
 
 
 class StageFailure(Exception):
@@ -334,6 +335,7 @@ def run(run_dir: Path, emit: Emitter) -> dict:
     con = duckdb.connect(str(out_dir / "mart.duckdb"))
     try:
         table_counts.update(materialize_base_facts(con))
+        top_paths = top_changed_paths(con)
     except Exception as exc:
         raise StageFailure("BASE_FACTS_INVALID", f"{type(exc).__name__}: {exc}") from exc
     finally:
@@ -347,6 +349,7 @@ def run(run_dir: Path, emit: Emitter) -> dict:
                       f"membership check ok on {validation['checked']} groups")
     summary = {
         **agg["summary"],
+        "top_paths": top_paths,
         "membership_validation": {"ok": validation["ok"], "checked": validation["checked"]},
         "pairs": len(pairs),
         "rows": {"normalized_union": counts["normalized_union"], "comparison": counts["comparison"],
