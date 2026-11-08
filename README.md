@@ -143,5 +143,7 @@ API в backend (CORS не поддерживается намеренно).
 
 - Сводная в UI считает только ячейки текущей страницы, итогов по осям нет: см. раздел «Ограничения» в
   [frontend/README.md](frontend/README.md).
-- `trusted-local` исполняет пользовательский Python без sandbox — только на loopback.
+- Пользовательский Python: `sandboxed` — песочница ядра (Landlock + seccomp, без сети/exec/fork, только файлы своего
+  запуска; можно публиковать), `trusted-local` — без sandbox, только на loopback. Таблица ограничений —
+  [backend/README.md](backend/README.md#sandbox-restrictions-sandboxed-mode).
 - UI не прошёл QA-верификацию (см. матрицу трассировки).

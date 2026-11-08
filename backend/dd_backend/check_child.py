@@ -71,6 +71,8 @@ def execute(check_path: Path, mart_path: Path, overrides_path: Path, result: Pat
 
 
 def main() -> int:
+    from . import sandbox
+    sandbox.enter_from_env()  # sandboxed mode: before the check file is even imported
     cmd = sys.argv[1]
     if cmd == "register":
         return register(Path(sys.argv[2]), Path(sys.argv[3]))

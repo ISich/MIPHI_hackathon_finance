@@ -82,10 +82,11 @@ class RunService:
 
     def _check_mode(self, snapshots: list[dict]) -> None:
         custom = [s for s in snapshots if s["source"] != "builtin"]
-        if custom and self.settings.execution_mode != "trusted-local":
+        if custom and not self.settings.custom_execution_enabled:
             raise ApiError(403, "CUSTOM_EXECUTION_DISABLED",
                            "Custom (workspace/file) code execution is disabled in the safe builtin-only mode; "
-                           "nothing was started. Use built-in procedures/checks or enable trusted-local on loopback.",
+                           "nothing was started. Use built-in procedures/checks, or ask the operator to enable "
+                           "DD_EXECUTION_MODE=sandboxed (kernel sandbox) or trusted-local (loopback only).",
                            {"execution_mode": self.settings.execution_mode,
                             "custom_scripts": [s["script_id"] for s in custom]})
 

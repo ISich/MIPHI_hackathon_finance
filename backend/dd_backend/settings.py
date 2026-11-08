@@ -7,7 +7,9 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
-EXECUTION_MODES = ("builtin-only", "trusted-local")
+EXECUTION_MODES = ("builtin-only", "sandboxed", "trusted-local")
+# Modes in which workspace/file Python is executed at all (sandboxed: Landlock+seccomp, see sandbox.py).
+CUSTOM_EXECUTION_MODES = ("sandboxed", "trusted-local")
 AI_RESPONSE_FORMATS = ("json_schema", "json_object", "none")
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 
@@ -102,6 +104,15 @@ class Settings:
     ai_max_output_tokens: int = field(default=2500)
     ai_response_format: str = field(default="json_schema")
     ai_openrouter_privacy: bool = field(default=True)
+    sandbox_max_open_files: int = field(default=512)
+
+    @property
+    def custom_execution_enabled(self) -> bool:
+        return self.execution_mode in CUSTOM_EXECUTION_MODES
+
+    @property
+    def sandboxed(self) -> bool:
+        return self.execution_mode == "sandboxed"
 
     @property
     def db_path(self) -> Path:
@@ -167,6 +178,7 @@ def load_settings() -> Settings:
         report_ui_base=ui_base,
         bind_host=os.environ.get("DD_BIND_HOST", "127.0.0.1"),
         expected_core_commit=(BACKEND_DIR / "CORE_COMMIT").read_text().strip(),
+        sandbox_max_open_files=_int("DD_SANDBOX_MAX_OPEN_FILES", 512),
         ai_base_url=ai_base,
         ai_model=os.environ.get("DD_AI_MODEL", "").strip(),
         ai_timeout_seconds=_int("DD_AI_TIMEOUT_SECONDS", 90),
