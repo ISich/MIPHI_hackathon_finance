@@ -22,6 +22,24 @@ const savedId = ref("");
 const name = ref("Конфигурация");
 const datasetId = ref("");
 const slots = ref<Partial<Record<ProcedureSlot, string>>>({});
+const slotDescriptions: Record<ProcedureSlot, { title: string; description: string }> = {
+  normalize: {
+    title: "Подготовка данных",
+    description: "Приводит документы «до» и «после» к единому табличному виду: выделяет поля и их значения для сравнения.",
+  },
+  compare: {
+    title: "Сравнение версий",
+    description: "Сопоставляет подготовленные данные «до» и «после» и отмечает, какие значения изменились, появились или исчезли.",
+  },
+  segments: {
+    title: "Сегментация заявок",
+    description: "Определяет признаки каждой заявки, например решение «до» и «после» и продукты, чтобы анализировать результаты по группам.",
+  },
+  aggregate: {
+    title: "Сводные итоги",
+    description: "Объединяет результаты сравнения и признаки заявок: рассчитывает общие показатели и готовит данные для сводной таблицы и отчёта.",
+  },
+};
 const checks = ref<Set<string> | null>(null);
 const error = ref<unknown>(null);
 const busy = ref(false);
@@ -35,7 +53,17 @@ const byKind = computed(() => {
   for (const s of scripts.data ?? []) (m[s.kind] ??= []).push(s);
   return m;
 });
-const checkScripts = computed(() => byKind.value["check"] ?? []);
+const builtinCheckTitles: Record<string, string> = {
+  check_ar_drop_by_product: "Снижение доли одобрений по продукту",
+  check_attribute_new_loss: "Появление и исчезновение атрибутов",
+  check_external_score_drift: "Изменение внешнего скорингового балла",
+  check_stop_factor_disappeared: "Исчезновение стоп-фактора",
+  check_target_model_changed: "Изменение целевой модели",
+};
+const checkScripts = computed(() => (byKind.value["check"] ?? []).map(s => ({
+  ...s,
+  title: s.source === "builtin" ? builtinCheckTitles[s.name] ?? s.name : s.name,
+})));
 const selectedChecks = computed(() => checks.value ?? new Set(checkScripts.value.filter((s) => s.shared).map((s) => s.script_id)));
 
 function toggleCheck(id: string, on: boolean) {
@@ -135,9 +163,11 @@ async function submit() {
           <template #default>
             <fieldset class="procedure-grid">
               <legend>Процедуры по слотам</legend>
-              <label v-for="slot in PROCEDURE_SLOTS" :key="slot">
-                {{ slot }}
-                <select v-model="slots[slot]" :aria-label="`Процедура ${slot}`">
+              <p class="muted">Слот — это этап обработки данных. Для каждого этапа выберите процедуру, которая его выполняет. Если свои правила обработки не нужны, оставьте встроенные процедуры.</p>
+              <label v-for="slot in PROCEDURE_SLOTS" :key="slot" class="procedure-slot">
+                <span class="procedure-slot-title">{{ slotDescriptions[slot].title }} <code>{{ slot }}</code></span>
+                <span :id="`procedure-${slot}-description`" class="procedure-slot-description">{{ slotDescriptions[slot].description }}</span>
+                <select v-model="slots[slot]" :aria-label="`Процедура ${slot}`" :aria-describedby="`procedure-${slot}-description`">
                   <option :value="undefined">встроенная (по умолчанию)</option>
                   <option v-for="s in byKind[slot] ?? []" :key="s.script_id" :value="s.script_id">
                     {{ s.name }} [{{ s.source }}{{ s.source !== "builtin" ? `, rev ${s.revision}` : "" }}]
@@ -157,7 +187,7 @@ async function submit() {
                   :checked="selectedChecks.has(s.script_id)"
                   @change="toggleCheck(s.script_id, ($event.target as HTMLInputElement).checked)"
                 />
-                {{ s.name }} <span class="muted">[{{ s.source }}]</span>
+                <span class="check-option-text">{{ s.title }} <span v-if="s.title !== s.name" class="muted">({{ s.name }})</span> <span class="muted">[{{ s.source }}]</span></span>
               </label>
             </fieldset>
           </template>
@@ -165,9 +195,9 @@ async function submit() {
       </template>
 
       <ErrorView v-if="error" :error="error" />
-      <div class="form-submit"><button type="submit" class="primary" :disabled="busy || !prerequisitesReady"><AppIcon name="plus" :size="17" />{{ busy ? "Запуск…" : "Сохранить конфигурацию и запустить" }}</button><p class="muted">Конфигурация и код процедур сохраняются в snapshot этого запуска.</p></div>
+      <div class="form-submit"><button type="submit" class="primary" :disabled="busy || !prerequisitesReady"><AppIcon name="plus" :size="17" />{{ busy ? "Запуск…" : "Сохранить конфигурацию и запустить" }}</button><p class="muted">Конфигурация и код процедур сохраняются в точке восстановления данного запуска.</p></div>
     </form>
-    <aside class="pipeline-guide" aria-label="Этапы анализа"><h2>Как устроен запуск</h2><ol><li><strong>Данные и конфигурация</strong><small>Набор данных и выбранные процедуры</small></li><li><strong>Сравнение версий</strong><small>Нормализация, сравнение и агрегация</small></li><li><strong>Контроль качества</strong><small>Исполнение выбранных проверок</small></li><li><strong>Результаты и отчёт</strong><small>Сводка, детализация и HTML-отчёт</small></li></ol><p>Прогресс и журнал событий появятся сразу после создания запуска. Итоги рассчитываются на backend.</p></aside>
+    <aside class="pipeline-guide" aria-label="Этапы анализа"><h2>Как устроен запуск</h2><ol><li><strong>Данные и конфигурация</strong><small>Набор данных и выбранные процедуры</small></li><li><strong>Сравнение версий</strong><small>Нормализация, сравнение и агрегация</small></li><li><strong>Контроль качества</strong><small>Исполнение выбранных проверок</small></li><li><strong>Результаты и отчёт</strong><small>Сводка, детализация и HTML-отчёт</small></li></ol></aside>
     </div>
   </section>
 </template>

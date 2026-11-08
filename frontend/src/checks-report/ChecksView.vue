@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { ApiError } from "../api/client";
-import { api } from "../api/instance";
+import { api, IS_MOCK } from "../api/instance";
 import type { ReportChecks, Run } from "../api/types";
 import AsyncView from "../components/AsyncView.vue";
 import EmptyView from "../components/EmptyView.vue";
@@ -11,6 +11,7 @@ import { timing } from "../config";
 import { href, navigate } from "../router";
 import AiOpinionPanel from "./AiOpinionPanel.vue";
 import ReportBody from "./ReportBody.vue";
+import { downloadReportHtml } from "./exportHtml";
 
 /**
  * Checks of ONE explicit report: ?report=<id> or the Run's initial_report_id
@@ -31,6 +32,9 @@ const checks = useApi(
   () => (selected.value && listed.value ? `report-checks:${selected.value}` : null),
   () => api.reportChecks(selected.value!),
 );
+const exporting = ref(false);
+const exportError = ref<unknown>(null);
+watch(selected, () => { exportError.value = null; });
 const mismatch = (detail: Record<string, unknown>) =>
   new ApiError(0, {
     code: "REPORT_RUN_MISMATCH",
@@ -41,6 +45,22 @@ const listError = computed(() => (listed.value === false ? mismatch({ report_id:
 function docError(d: ReportChecks): ApiError | null {
   if (d.report_id === selected.value && d.run_id === props.run.run_id && d.dataset_revision_id === props.run.dataset_revision_id) return null;
   return mismatch({ report_run_id: d.run_id, report_dataset_revision_id: d.dataset_revision_id, run_dataset_revision_id: props.run.dataset_revision_id });
+}
+const canExport = computed(() => !!selected.value && listed.value === true && !checks.loading && !checks.error && !!checks.data && !docError(checks.data));
+async function exportReport() {
+  if (!canExport.value || exporting.value) return;
+  const report = checks.data!;
+  exporting.value = true;
+  exportError.value = null;
+  try {
+    await nextTick();
+    if (!canExport.value || report.report_id !== selected.value) return;
+    downloadReportHtml(report, window.location.origin, IS_MOCK);
+  } catch (error) {
+    exportError.value = error;
+  } finally {
+    exporting.value = false;
+  }
 }
 const choose = (e: Event) =>
   navigate(`${href("runs", props.run.run_id, "checks")}?report=${encodeURIComponent((e.target as HTMLSelectElement).value)}`);
@@ -62,10 +82,11 @@ const choose = (e: Event) =>
           </label>
         </template>
       </AsyncView>
-      <a v-if="selected && listed" class="button" :href="api.reportHtmlUrl(selected)" target="_blank" rel="noopener noreferrer" :download="`${selected}.html`">
-        Скачать HTML-отчёт
-      </a>
+      <button v-if="selected && listed" type="button" :disabled="!canExport || exporting" @click="exportReport">
+        {{ exporting ? 'Подготовка отчёта…' : 'Скачать HTML-отчёт' }}
+      </button>
     </div>
+    <ErrorView v-if="exportError" :error="exportError" />
     <EmptyView v-if="!selected">У Run нет initial_report_id — отчёт по проверкам не опубликован.</EmptyView>
     <ErrorView v-else-if="listError" :error="listError" />
     <AsyncView v-else-if="listed" :value="checks" what="Загрузка результатов проверок">

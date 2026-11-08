@@ -22,15 +22,22 @@ const kinds = useApi(() => "script-kinds", () => api.scriptKinds());
 const config = useApi(() => `config:${props.run.config_id}`, () => api.configuration(props.run.config_id));
 const code = ref<string | null>(null);
 const file = shallowRef<File | null>(null);
-const name = ref("Новая проверка");
+const defaultName = "Доля изменённых заявок";
+const name = ref(defaultName);
 const includeExisting = ref(true);
 const error = ref<unknown>(null);
-const phase = ref<"edit" | "saving" | "running">("edit");
+const phase = ref<"edit" | "saving" | "starting" | "running">("edit");
 const checkRun = shallowRef<CheckRun | null>(null);
 const saved = shallowRef<{ key: string; script: Script } | null>(null);
 let crKey: { scriptId: string; checks: string; key: string } | null = null;
 let alive = true;
-onBeforeUnmount(() => (alive = false));
+let pollTimer: ReturnType<typeof setTimeout> | undefined;
+let cancelPoll: (() => void) | undefined;
+onBeforeUnmount(() => {
+  alive = false;
+  clearTimeout(pollTimer);
+  cancelPoll?.();
+});
 
 /**
  * With "include existing" the new report must contain the Run's original checks;
@@ -39,7 +46,11 @@ onBeforeUnmount(() => (alive = false));
  */
 const configReady = computed(() => !includeExisting.value || (config.data !== undefined && !config.error));
 const checkKind = computed(() => kinds.data?.find((k) => k.kind === "check"));
-const text = computed(() => code.value ?? checkKind.value?.template ?? "");
+const text = computed(() => code.value ?? checkKind.value?.example ?? "");
+const snapshotKey = computed(() => JSON.stringify([name.value.trim(), text.value, file.value?.name ?? null]));
+const savedCurrent = computed(() => saved.value?.key === snapshotKey.value);
+const canSave = computed(() => !!checkKind.value && !kinds.error && !!name.value.trim() && !!text.value.trim() && phase.value === "edit");
+const canRun = computed(() => canSave.value && configReady.value && props.run.status === "COMPLETED" && checkKind.value?.custom_execution_enabled === true);
 
 function setText(c: string) {
   code.value = c;
@@ -47,27 +58,53 @@ function setText(c: string) {
 }
 function onFile(f: File) {
   file.value = f;
-  name.value = f.name.replace(/\.py$/, "");
+  if (!name.value.trim() || name.value === defaultName) name.value = f.name.replace(/\.py$/, "");
 }
 
-async function submit() {
-  if (phase.value !== "edit" || !configReady.value) return;
+async function persistScript() {
+  const key = snapshotKey.value;
+  if (saved.value?.key === key) return saved.value.script;
+  const script = await saveScript("check", name.value.trim(), text.value, file.value);
+  if (alive) saved.value = { key, script };
+  return script;
+}
+
+async function saveOnly() {
+  if (!canSave.value) return;
   error.value = null;
   phase.value = "saving";
   try {
-    // Re-use the saved snapshot if nothing changed since the last (failed) attempt.
-    const saveKey = JSON.stringify([name.value, text.value, file.value?.name ?? null]);
-    let script = saved.value?.key === saveKey ? saved.value.script : null;
-    if (!script) {
-      script = await saveScript("check", name.value, text.value, file.value);
-      saved.value = { key: saveKey, script };
-    }
+    await persistScript();
+  } catch (e) {
+    if (alive) error.value = e;
+  } finally {
+    if (alive) phase.value = "edit";
+  }
+}
+
+function nextPoll(): Promise<boolean> {
+  return new Promise(resolve => {
+    cancelPoll = () => resolve(false);
+    pollTimer = setTimeout(() => { cancelPoll = undefined; resolve(true); }, timing.checkRunPollMs);
+  });
+}
+
+async function submit() {
+  if (!canRun.value) return;
+  error.value = null;
+  checkRun.value = null;
+  phase.value = "saving";
+  try {
+    const script = await persistScript();
+    if (!alive) return;
     const sid = script.script_id;
     const existing: ScriptRef[] = includeExisting.value ? (config.data?.checks ?? []).filter((c) => c.script_id !== sid) : [];
     const checks = [...existing.map((c) => ({ script_id: c.script_id, params: c.params ?? null })), { script_id: sid }];
     const checksKey = JSON.stringify(checks);
     if (crKey?.scriptId !== sid || crKey.checks !== checksKey) crKey = { scriptId: sid, checks: checksKey, key: newIdempotencyKey() };
+    phase.value = "starting";
     let cr = await api.createCheckRun(props.run.run_id, { checks }, crKey.key);
+    if (!alive) return;
     phase.value = "running";
     for (;;) {
       if (!alive) return;
@@ -79,9 +116,10 @@ async function submit() {
       if (cr.status === "FAILED") {
         error.value = cr.error ? new ApiError(0, { code: cr.error.code, message: cr.error.message ?? cr.error.code }) : new Error("CheckRun завершился с ошибкой (FAILED)");
         phase.value = "edit";
+        crKey = null; // A retry after a terminal failure must create a fresh execution.
         return;
       }
-      await new Promise((r) => setTimeout(r, timing.checkRunPollMs));
+      if (!await nextPoll() || !alive) return;
       cr = await api.checkRun(cr.check_run_id);
     }
   } catch (e) {
@@ -93,9 +131,12 @@ async function submit() {
 </script>
 
 <template>
-  <div>
+  <section class="new-check-screen">
     <h2>Новая проверка</h2>
+    <p class="muted">Проверка использует результаты текущего запуска. Готовый пример ниже считает долю заявок с изменениями; его можно изменить или заменить файлом .py.</p>
     <ExecutionModeNote />
+    <form class="form" aria-label="Новая проверка" @submit.prevent="submit">
+    <fieldset class="new-check-fields" :disabled="phase !== 'edit'">
     <AsyncView :value="kinds" what="Загрузка контракта проверки">
       <template #default>
         <details v-if="checkKind">
@@ -119,7 +160,7 @@ async function submit() {
       <template v-if="file">файл <code>{{ file.name }}</code> (без изменений)</template>
       <template v-else>редактор (workspace)</template>
     </p>
-    <label>
+    <label class="check-option">
       <input v-model="includeExisting" type="checkbox" /> включить в новый отчёт исходные проверки конфигурации{{
         config.data ? ` (${config.data.checks.length})` : ""
       }}
@@ -129,14 +170,27 @@ async function submit() {
       <ErrorView :error="config.error" :on-retry="config.reload" />
     </template>
     <ErrorView v-if="error" :error="error" />
-    <p v-if="saved && error" class="muted">
-      Скрипт уже сохранён: <a :href="href('scripts', saved.script.script_id)">{{ saved.script.name }}</a> (rev {{ saved.script.revision }}).
+    </fieldset>
+    <p v-if="saved && savedCurrent" class="state state-ok" role="status">
+      Проверка сохранена: <a :href="href('scripts', saved.script.script_id)">{{ saved.script.name }}</a> (версия {{ saved.script.revision }}).
     </p>
     <p v-if="phase === 'running'" role="status">
       Проверки исполняются на сервере… CheckRun <code>{{ checkRun?.check_run_id }}</code>: {{ checkRun?.status ?? "QUEUED" }}
     </p>
-    <button type="button" class="primary" :disabled="phase !== 'edit' || !configReady || !text.trim() || !name.trim()" @click="submit">
-      {{ phase === "saving" ? "Сохранение…" : "Сохранить и запустить проверки" }}
-    </button>
-  </div>
+    <div class="new-check-actions">
+      <button type="submit" class="primary" :disabled="!canRun">
+        {{ phase === 'saving' ? 'Сохранение…' : phase === 'starting' ? 'Запуск проверок…' : phase === 'running' ? 'Проверки выполняются…' : 'Сохранить и запустить проверки' }}
+      </button>
+      <button type="button" :disabled="!canSave || savedCurrent" @click="saveOnly">Сохранить проверку</button>
+    </div>
+    <p v-if="checkKind?.custom_execution_enabled === false" class="muted">Запуск недоступен: сервер разрешает только встроенные проверки. Код можно сохранить и запустить после подключения сервера с исполнением пользовательских проверок.</p>
+    <p v-else-if="checkKind && checkKind.custom_execution_enabled === undefined" class="muted">Сервер не сообщил, поддерживает ли он запуск пользовательских проверок. Сохранение кода доступно.</p>
+    </form>
+  </section>
 </template>
+
+<style scoped>
+.new-check-screen > .muted { max-width: 820px; }
+.new-check-fields { border: 0; padding: 0; gap: 20px; }
+.new-check-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+</style>

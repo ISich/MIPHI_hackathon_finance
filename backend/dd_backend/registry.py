@@ -96,7 +96,7 @@ SCRIPT_KINDS: dict[str, dict[str, Any]] = {
             "             'TOTAL': total, 'METRIC': round(share, 4), 'APP_IDS': changed[:20],\n"
             "             'RESULT': 'FAIL' if share > params['max_share'] else 'PASS',\n"
             "             'CONFIDENCE': 'HIGH' if total >= 30 else 'LOW'}]\n\n"
-            "CHECK = {'id': 'changed_share', 'label': 'Share of changed apps', 'params': {'max_share': 0.5}, 'entrypoint': run}\n"
+            "CHECK = {'id': 'changed_share', 'label': 'Доля изменённых заявок', 'params': {'max_share': 0.5}, 'entrypoint': run}\n"
         ),
     },
 }

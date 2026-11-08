@@ -228,7 +228,14 @@ class RunService:
         if r["status"] != "COMPLETED":
             raise not_ready("Run summary is available only after the run COMPLETED",
                             {"run_id": run_id, "status": r["status"], "stage": r["stage"]})
-        return {"run_id": run_id, "dataset_revision_id": r["dataset_revision_id"], **loads(r["summary_json"]),
+        summary = loads(r["summary_json"])
+        if "top_paths" not in summary:
+            # Older completed runs already have all comparison rows in their immutable mart.
+            import duckdb
+            from .summary import top_changed_paths
+            with duckdb.connect(str(self.mart_path(owner_id, run_id)), read_only=True) as con:
+                summary["top_paths"] = top_changed_paths(con)
+        return {"run_id": run_id, "dataset_revision_id": r["dataset_revision_id"], **summary,
                 "artifacts": self.artifacts(owner_id, run_id)["items"]}
 
     def artifacts(self, owner_id: str, run_id: str) -> dict:
