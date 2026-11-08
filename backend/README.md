@@ -152,6 +152,28 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 | `DD_ALLOWED_HOSTS` | `127.0.0.1,localhost,::1` | accepted `Host` names (anti DNS-rebinding); other hosts → 400. trusted-local accepts loopback names only |
 | `DD_REPORT_UI_BASE` | `http://127.0.0.1:5173` | absolute UI base embedded in HTML reports (provisional route `/runs/{run}/reports/{report}`) |
 
+### AI opinion (FR-024, optional)
+
+Off unless both a model and a key are set; the report then shows an explicit `DISABLED` status.
+The key is the only secret of the backend: it is read at call time from the environment, never returned by the API,
+written to logs/HTML or passed to user-code children.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DD_AI_API_KEY` / `DD_AI_API_KEY_FILE` | — | OpenRouter (or other OpenAI-compatible) key, inline or path to a file |
+| `DD_AI_MODEL` | — | model id: exact OpenRouter slug from openrouter.ai/models (`vendor/model`) |
+| `DD_AI_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible base; `/chat/completions` is appended |
+| `DD_AI_TIMEOUT_SECONDS` | `90` | total budget per opinion (one retry on 429/5xx/network inside it) |
+| `DD_AI_MAX_OUTPUT_TOKENS` | `2500` | `max_tokens` of the completion |
+| `DD_AI_RESPONSE_FORMAT` | `json_schema` | `json_schema` (strict), `json_object` or `none` for models without structured output |
+| `DD_AI_OPENROUTER_DENY_DATA_COLLECTION` | `1` | OpenRouter: route only to providers that do not store/train on prompts |
+
+Routes: `GET/POST /api/reports/{id}/ai-opinion` (async, cached by facts+model+prompt revision; `{"force": true}`
+asks again) and `GET /api/reports/{id}/ai-opinion/package` (exactly what is sent). The package holds run aggregates,
+check rows **without APP_IDS**, execution statuses and top changed PATH names (no values). Findings must reference
+fact ids; unknown references are dropped, numbers absent from the package are flagged. The downloaded HTML contains
+the ready opinion or its status at export time.
+
 ## API overview
 
 `GET /api/datasets/{dataset_id}/table?side=before|after` exposes a read-only table of the current source JSON files for the UI table workspace. Access follows existing dataset ownership/shared rules. The response includes `dataset_id`, `side`, `columns`, and scalar `rows`; nested objects use JSON Pointer paths, nested arrays remain JSON text, and `_file` identifies the source. A root array yields one row per element. The endpoint rejects invalid/non-finite JSON and returns 413 rather than a partial snapshot when the complete selection exceeds 10 MiB, 20,000 rows or 200 columns. It reuses allowlisted path validation and bounded regular-file reads. Editing the resulting browser copy does not write to the dataset or create a run/revision.

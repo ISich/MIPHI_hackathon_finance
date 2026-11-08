@@ -293,6 +293,24 @@ describe("Checks", () => {
     w.unmount();
   });
 
+  it("shows the AI opinion as a separate block: request -> pending -> ready with fact refs", async () => {
+    const run = await completedRun();
+    const w = mnt(ChecksView, { run, reportId: null });
+    const panel = await waitFor(() => {
+      const p = byTestId(w, "ai-opinion");
+      expect(p.dataset.aiStatus).toBe("NOT_REQUESTED");
+      return p;
+    });
+    expect(panel.textContent).toContain("не меняет результаты проверок");
+    await click(button(w, "Получить мнение ИИ"));
+    expect(holder.calls.some((c) => c.init?.method === "POST" && c.url === `/api/reports/${run.initial_report_id}/ai-opinion`)).toBe(true);
+    await waitFor(() => expect(byTestId(w, "ai-opinion").dataset.aiStatus).toBe("READY"), 8000);
+    expect(byTestId(w, "ai-opinion").textContent).toContain("Малая выборка");
+    expect(byTestId(w, "ai-opinion").querySelector('code.ai-ref[title*="check_row"]')).not.toBeNull();
+    expect(allByTestId(w, "check-execution")).toHaveLength(5);
+    w.unmount();
+  }, 15000);
+
   it("opens the explicitly requested report, not an implicit latest", async () => {
     const run = await completedRun();
     const w = mnt(ChecksView, { run, reportId: run.initial_report_id });

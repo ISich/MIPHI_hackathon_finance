@@ -334,6 +334,50 @@ class ReportChecks(BaseModel):
     executions: list[dict[str, Any]]
 
 
+class AiFinding(BaseModel):
+    title: str
+    text: str
+    severity: Literal["info", "attention", "concern"]
+    refs: list[str]
+    unverified_numbers: list[float] = Field(description="Numbers in the text that do not occur in the sent facts")
+
+
+class AiOpinionBody(BaseModel):
+    summary: str
+    findings: list[AiFinding]
+    limitations: list[str]
+
+
+class AiError(BaseModel):
+    code: str
+    message: Optional[str]
+
+
+class AiOpinion(BaseModel):
+    """Separate AI block of a check report (FR-024). Never changes counts / RESULT / CONFIDENCE."""
+    report_id: str
+    status: Literal["DISABLED", "NOT_REQUESTED", "PENDING", "READY", "FAILED"]
+    opinion_id: Optional[str]
+    model: Optional[str]
+    prompt_revision: str
+    disclaimer: str
+    disabled_reason: Optional[str]
+    opinion: Optional[AiOpinionBody]
+    validation: Optional[dict[str, Any]]
+    usage: Optional[dict[str, Any]]
+    error: Optional[AiError]
+    facts: Optional[dict[str, dict[str, Any]]] = Field(
+        description="Depersonalised facts sent to the model, by id (READY only); refs point here")
+    created_at: Optional[str]
+    finished_at: Optional[str]
+    duration_seconds: Optional[float]
+
+
+class AiOpinionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    force: bool = Field(default=False, description="Ask again even if a READY opinion for the same facts exists")
+
+
 class Readiness(BaseModel):
     ready: bool
     checks: list[dict[str, Any]]
