@@ -7,7 +7,9 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
-EXECUTION_MODES = ("builtin-only", "trusted-local")
+EXECUTION_MODES = ("builtin-only", "sandboxed", "trusted-local")
+# Modes in which workspace/file Python is executed at all (sandboxed: Landlock+seccomp, see sandbox.py).
+CUSTOM_EXECUTION_MODES = ("sandboxed", "trusted-local")
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 
 
@@ -94,6 +96,15 @@ class Settings:
     max_check_result_bytes: int = field(default=16 * 1024 * 1024)
     max_report_bytes: int = field(default=64 * 1024 * 1024)
     allowed_hosts: frozenset = field(default=frozenset())
+    sandbox_max_open_files: int = field(default=512)
+
+    @property
+    def custom_execution_enabled(self) -> bool:
+        return self.execution_mode in CUSTOM_EXECUTION_MODES
+
+    @property
+    def sandboxed(self) -> bool:
+        return self.execution_mode == "sandboxed"
 
     @property
     def db_path(self) -> Path:
@@ -154,4 +165,5 @@ def load_settings() -> Settings:
         report_ui_base=ui_base,
         bind_host=os.environ.get("DD_BIND_HOST", "127.0.0.1"),
         expected_core_commit=(BACKEND_DIR / "CORE_COMMIT").read_text().strip(),
+        sandbox_max_open_files=_int("DD_SANDBOX_MAX_OPEN_FILES", 512),
     )

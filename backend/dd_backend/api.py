@@ -103,7 +103,7 @@ def get_dataset_table(dataset_id: str, request: Request, side: Literal["before",
 # ------------------------------------------------------------------ scripts
 @router.get("/script-kinds", tags=["scripts"], response_model=list[m.ScriptKind])
 def script_kinds(request: Request):
-    enabled = request.app.state.settings.execution_mode == "trusted-local"
+    enabled = request.app.state.settings.custom_execution_enabled
     return [{"kind": k, **v, "sources": ["builtin", "workspace", "file"], "custom_execution_enabled": enabled}
             for k, v in SCRIPT_KINDS.items()]
 

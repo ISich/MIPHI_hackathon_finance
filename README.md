@@ -143,5 +143,7 @@ API в backend (CORS не поддерживается намеренно).
 
 - Вкладка «Сводная» в UI шлёт устаревшую форму запроса `POST /api/runs/{id}/pivot` и получает 422 —
   см. раздел «Ограничения» в [frontend/README.md](frontend/README.md).
-- `trusted-local` исполняет пользовательский Python без sandbox — только на loopback.
+- Пользовательский Python: `sandboxed` — песочница ядра (Landlock + seccomp, без сети/exec/fork, только файлы своего
+  запуска; можно публиковать), `trusted-local` — без sandbox, только на loopback. Таблица ограничений —
+  [backend/README.md](backend/README.md#sandbox-restrictions-sandboxed-mode).
 - UI не прошёл QA-верификацию (см. матрицу трассировки).

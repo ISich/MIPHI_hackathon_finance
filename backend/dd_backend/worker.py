@@ -7,7 +7,8 @@
   timeouts can be enforced and module-level state never leaks between checks.
 * Children get a scrubbed environment (no inherited secrets), their own process group,
   rlimits (address space, file size, open files), a wall-clock timeout and capped logs.
-  This is NOT a filesystem/network sandbox.
+  By itself this is NOT a filesystem/network sandbox; in execution mode ``sandboxed`` each child
+  additionally enters the Landlock + seccomp sandbox of ``dd_backend.sandbox`` with a per-child policy.
 * On start, jobs left RUNNING by a dead worker are deterministically marked FAILED
   with code RUN_INTERRUPTED; QUEUED jobs stay queued and are executed.
 """
@@ -35,6 +36,7 @@ from typing import Any, Callable
 
 from .db import Database, dumps, loads, new_id, now
 from .runs import append_event
+from . import sandbox
 from .settings import BACKEND_DIR, Settings
 
 log = logging.getLogger("dd_backend.worker")
@@ -499,9 +501,21 @@ class Worker:
                 pass
             return child.wait()
 
+    def _sandbox_env(self, ro: list[Path], rw: list[Path], timeout: float) -> dict[str, str]:
+        """In sandboxed mode: the child's Landlock/seccomp policy (only its own inputs and outputs)."""
+        if not self.settings.sandboxed:
+            return {}
+        s = self.settings
+        deny = [s.home, s.runs_dir, s.checks_dir, *s.data_roots.values()]
+        return {sandbox.POLICY_ENV: sandbox.policy_env(ro=ro, rw=rw, deny_under=deny, cpu_seconds=int(timeout) + 1,
+                                                       max_open_files=s.sandbox_max_open_files)}
+
     def spawn(self, argv: list[str], *, workdir: Path, timeout: float, log_path: Path,
-              on_event: Callable[[dict], None] | None = None) -> tuple[int | None, bool]:
-        """Run a child; returns (returncode, timed_out). Logs are capped at max_log_bytes."""
+              on_event: Callable[[dict], None] | None = None, ro: list[Path] = (),
+              rw: list[Path] = ()) -> tuple[int | None, bool]:
+        """Run a child; returns (returncode, timed_out). Logs are capped at max_log_bytes.
+        ``ro``/``rw``: the only paths the child may read/write once it enters the sandbox (sandboxed mode;
+        ``workdir`` is always writable)."""
         workdir.mkdir(parents=True, exist_ok=True)
         mark = secrets.token_hex(16)
         job_seq = self._current.get("job_seq")
@@ -525,7 +539,8 @@ class Worker:
         previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGHUP})
         try:
             child = subprocess.Popen(
-                cmd, cwd=workdir, env={**self._child_env(workdir), EXEC_MARK_VAR: mark}, stdin=subprocess.DEVNULL,
+                cmd, cwd=workdir, env={**self._child_env(workdir), **self._sandbox_env(list(ro), [workdir, *rw], timeout),
+                     EXEC_MARK_VAR: mark}, stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(ev_w,) if on_event else (),
                 start_new_session=True, close_fds=True,
             )
@@ -674,7 +689,7 @@ class Worker:
         rdir = settings.runs_dir / run_id
         cfg = json.loads((rdir / "snapshot" / "config.json").read_text("utf-8"))
         custom = [s for s in [*cfg["procedures"].values(), *cfg["checks"]] if s["source"] != "builtin"]
-        if custom and settings.execution_mode != "trusted-local":
+        if custom and not settings.custom_execution_enabled:
             with self._job_tx() as con:
                 self._fail_run_tx(con, run_id, "CUSTOM_EXECUTION_DISABLED",
                                   "Run contains custom code but the worker runs in builtin-only mode; nothing executed")
@@ -699,7 +714,8 @@ class Worker:
                 state["error"] = p
 
         rc, timed_out = self.spawn(["dd_backend.pipeline", str(rdir)], workdir=rdir / "work",
-                                   timeout=settings.run_timeout_seconds, log_path=rdir / "pipeline.log", on_event=on_event)
+                                   timeout=settings.run_timeout_seconds, log_path=rdir / "pipeline.log", on_event=on_event,
+                                   ro=[rdir / "snapshot"], rw=[rdir / "artifacts"])
         if self._stop.is_set() and state["result"] is None:
             return  # shutdown: recover(include_self=True) marks it interrupted
         if timed_out:
@@ -764,7 +780,7 @@ class Worker:
                 con.execute("UPDATE check_runs SET status='RUNNING', started_at=?, worker_id=?, heartbeat_at=? WHERE check_run_id=?",
                             (now(), self.worker_id, now(), cr_id))
         custom = [s for s in selected if s["source"] != "builtin"]
-        if custom and settings.execution_mode != "trusted-local":
+        if custom and not settings.custom_execution_enabled:
             with self._job_tx() as con:
                 self._fail_check_run_tx(con, cr_id, "CUSTOM_EXECUTION_DISABLED",
                                         "Custom checks are disabled in builtin-only mode; nothing executed")
@@ -792,7 +808,7 @@ class Worker:
                 started = time.monotonic()
                 rc, timed_out = self.spawn(["dd_backend.check_child", "register", str(path), str(reg_out)],
                                            workdir=cdir / "work", timeout=settings.check_timeout_seconds,
-                                           log_path=cdir / f"{s['slot']}.log")
+                                           log_path=cdir / f"{s['slot']}.log", ro=[path], rw=[cdir])
                 if self._stop.is_set():
                     return False  # interrupted by shutdown: not a check failure, nothing is published
                 if timed_out:
@@ -836,7 +852,7 @@ class Worker:
                 run_out = cdir / f"{s['slot']}.result.json"
                 rc, timed_out = self.spawn(["dd_backend.check_child", "run", str(path), str(mart), str(overrides), str(run_out)],
                                            workdir=cdir / "work", timeout=settings.check_timeout_seconds,
-                                           log_path=cdir / f"{s['slot']}.log")
+                                           log_path=cdir / f"{s['slot']}.log", ro=[path, mart, overrides], rw=[cdir])
                 if self._stop.is_set():
                     return False  # interrupted by shutdown: not a check failure, nothing is published
                 ex["duration_seconds"] = round(time.monotonic() - started, 3)

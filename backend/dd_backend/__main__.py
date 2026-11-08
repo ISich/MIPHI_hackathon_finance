@@ -24,6 +24,9 @@ def _serve(args) -> int:
     if settings.execution_mode == "trusted-local":
         print("WARNING: trusted-local mode: user Python runs with this server user's rights. "
               "Not a sandbox. Do not expose.", file=sys.stderr)
+    if settings.sandboxed:
+        print("NOTE: sandboxed mode: user Python runs under Landlock + seccomp (no network/exec/fork, "
+              "own run files only); self-test runs at startup", file=sys.stderr)
     if not settings.cookie_secure:
         print("NOTE: local HTTP mode: session cookie without Secure flag (set DD_COOKIE_SECURE=1 behind TLS)", file=sys.stderr)
     os.environ["DD_BIND_HOST"] = args.host
@@ -37,6 +40,13 @@ def _worker(args) -> int:
     from .registry import Registry
     from .worker import Worker
     settings = load_settings()
+    if settings.sandboxed:
+        from . import sandbox
+        try:
+            sandbox.require_working(settings.home / "sandbox-selftest")
+        except sandbox.SandboxError as exc:
+            print(f"refusing to start: {exc}", file=sys.stderr)
+            return 2
     db = Database(settings.db_path)
     db.init()
     Registry(settings, db).sync_builtin_scripts()

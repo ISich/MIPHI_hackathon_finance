@@ -114,6 +114,9 @@ def create_app() -> FastAPI:
     settings.scripts_dir.mkdir(parents=True, exist_ok=True)
     signing_key = _signing_key(settings.signing_key_path)
 
+    if settings.sandboxed:
+        from . import sandbox
+        sandbox.require_working(settings.home / "sandbox-selftest")  # fail closed: no app without a working sandbox
     from .registry import Registry
     registry = Registry(settings, db)
     registry.sync_builtin_scripts()

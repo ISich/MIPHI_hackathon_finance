@@ -231,6 +231,11 @@ def run(run_dir: Path, emit: Emitter) -> dict:
     pairs = sorted(before_files)
     emit.send(type="event", level="INFO", message=f"{len(pairs)} complete pairs, fingerprint verified",
               processed=len(pairs), total=len(pairs))
+    # Sandboxed mode: from here on (user code may run) the process can read only the runtime and this run's
+    # snapshot, write only artifacts/work, and has no network, exec, fork or signals to others.
+    from . import sandbox
+    if sandbox.enter_from_env():
+        emit.send(type="event", level="INFO", message="sandbox entered: landlock + seccomp")
     verify_builtin_runtime(cfg)
     fns = build_procedures(run_dir, procs)
 

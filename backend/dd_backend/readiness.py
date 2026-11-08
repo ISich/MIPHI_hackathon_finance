@@ -121,10 +121,21 @@ def readiness(settings: Settings, db: Database) -> dict[str, Any]:
         _check("worker", worker),
         _check("executions", executions),
     ]
+    if settings.sandboxed:
+        def sandbox_check():
+            from . import sandbox
+            res = sandbox.startup_result()
+            if res is None:  # e.g. a standalone worker process: verify here
+                res = sandbox.selftest(settings.home / "sandbox-selftest")
+            return {"_ok": res["ok"], **{k: v for k, v in res.items() if k != "ok"}}
+        checks_list.append(_check("sandbox", sandbox_check))
     return {
         "ready": all(c["ok"] for c in checks_list),
         "checks": checks_list,
         "execution_mode": settings.execution_mode,
-        "warnings": (["trusted-local execution enabled: user Python runs with server user rights; loopback only"]
-                     if settings.execution_mode == "trusted-local" else []),
+        "warnings": {"trusted-local": ["trusted-local execution enabled: user Python runs with server user rights; "
+                                       "loopback only"],
+                     "sandboxed": ["sandboxed execution enabled: user Python runs under Landlock + seccomp as the "
+                                   "server uid (no user/PID namespace, no disk quota, no cgroup)"]
+                     }.get(settings.execution_mode, []),
     }

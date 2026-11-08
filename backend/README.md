@@ -136,7 +136,8 @@ Machine-readable schema for the frontend: [`openapi.json`](openapi.json) (also s
 | `DD_HOME` | `backend/var` | SQLite DB, run directories, stored scripts |
 | `DD_DATA_ROOTS` | `examples=.core/<sha>/examples` | `name=path,...` allowlisted dataset roots |
 | `DD_CHECKS_DIR` | `.core/<sha>/checks` | built-in organizer checks (registered read-only) |
-| `DD_EXECUTION_MODE` | `builtin-only` | `builtin-only` or `trusted-local` (custom Python; loopback only) |
+| `DD_EXECUTION_MODE` | `builtin-only` | `builtin-only`, `sandboxed` (custom Python under Landlock + seccomp; may be published) or `trusted-local` (custom Python unconfined; loopback only) |
+| `DD_SANDBOX_MAX_OPEN_FILES` | `512` | sandboxed: RLIMIT_NOFILE of every child |
 | `DD_EMBEDDED_WORKER` | `1` | `0` = run `python -m dd_backend worker` separately |
 | `DD_RUN_TIMEOUT_SECONDS` | `900` | wall clock per data-run pipeline child |
 | `DD_CHECK_TIMEOUT_SECONDS` | `120` | wall clock per check child |
@@ -199,6 +200,10 @@ Setting the removed `DD_ALLOWED_ORIGINS` is a startup error.
 
 - **Default `builtin-only`:** only the pinned core procedures and the organizer checks execute. Creating a
   run/check-run that references workspace/file code returns 403 `CUSTOM_EXECUTION_DISABLED`; nothing runs.
+- **`sandboxed` (opt-in, publishable):** custom procedures and checks run, every child (built-in ones too)
+  confined by the kernel (`dd_backend/sandbox.py`, Linux x86_64, Landlock ABI ≥ 1, no root needed). See
+  [Sandbox restrictions](#sandbox-restrictions-sandboxed-mode). Startup runs a self-test of every escape and
+  refuses to start (`serve`, `worker`, `create_app`) if any is not denied; `/ready` reports it as the `sandbox` check.
 - **`trusted-local` (opt-in):** user Python runs in a child process with a scrubbed environment, own process
   group, rlimits, timeouts and capped logs. This is **not** a filesystem or network sandbox: the code has the
   server user's file and network rights. `serve` refuses this mode on non-loopback hosts. Do not publish it.
@@ -229,6 +234,30 @@ Setting the removed `DD_ALLOWED_ORIGINS` is a startup error.
   The worker starts the supervisor with TERM/INT/HUP blocked; the supervisor installs its stop handlers before
   unblocking them, so a shutdown signal that arrives during startup still ends in containment + marker
   (`FAILED`/`RUN_INTERRUPTED`), never in a blocked queue. A pending stop prevents user code from being launched.
+
+## Sandbox restrictions (`sandboxed` mode)
+
+The worker gives each child its own policy (`DD_SANDBOX_POLICY`); the child enters the sandbox **before any user
+code can run** (pipeline: right after inputs were read once and fingerprinted; checks: before the check file is
+imported). Entering is irreversible. If it fails, the child exits 71 (`SANDBOX_FAILED` in the log) — never
+unconfined.
+
+| Area | Allowed | Denied |
+|---|---|---|
+| Read | Python stdlib, venv site-packages (pinned core, duckdb), `dd_backend`, `/usr`, `/lib*`, `ld.so.cache`, `localtime`, `/dev/urandom`; own run: `snapshot/` (pipeline) or the check file + `mart.duckdb` + params (checks); CPU/memory probe files (`/sys/devices/system/cpu/{online,possible}`, `/proc/{stat,meminfo}`, own cgroup `memory.max`/`cpu.max`) | DB, signing key, other runs, datasets/data roots (the pipeline has read its inputs before entering), checks dir, `/etc`, `/home`, `/proc/<pid>`, `/sys`, `/tmp`, anything else |
+| Write | own `artifacts/` + `work/` (pipeline) or own `checks/<id>/` (checks); `/dev/null` | everything else; symlinks, fifos, sockets, devices, hard links across dirs |
+| Network | — | every `socket()`/`socketpair()` of any family (seccomp), TCP bind/connect (Landlock ABI ≥ 4), `io_uring` |
+| Processes | threads | `execve`/`execveat` (no shell, `os.system`, `subprocess`), `fork`/`vfork`/`clone` without `CLONE_THREAD`, `clone3` (ENOSYS → glibc falls back to clone) |
+| Other processes | signals to itself | `kill`/`tgkill` to any other pid or group, `tkill`, pidfd, `ptrace`, `process_vm_*`, `kcmp` |
+| Kernel surface | — | namespaces, mount API, chroot, `bpf`, `perf_event_open`, `userfaultfd`, keyrings, modules, `personality`, clocks, `syslog`, NUMA page moves, nested Landlock; non-x86_64 ABI / x32 syscalls kill the process |
+| Resources | — | wall-clock timeout (`DD_RUN_TIMEOUT_SECONDS` / `DD_CHECK_TIMEOUT_SECONDS`), `RLIMIT_CPU` = timeout + 1 s, `RLIMIT_AS` (`DD_MAX_MEMORY_MB`), `RLIMIT_FSIZE` (`DD_MAX_OUTPUT_BYTES`), `RLIMIT_NOFILE`, no core dumps, capped logs, `no_new_privs` |
+| Environment | `PATH`, locale, `HOME`/`TMPDIR` = own work dir | every server variable (secrets, `DD_*`) |
+
+Residual risks (not hidden): the child runs as the server uid, without PID/user namespaces (Ubuntu 24.04 AppArmor
+forbids unprivileged user namespaces, bubblewrap is not installed) — isolation comes from Landlock + seccomp.
+Disk usage of the writable dirs is bounded per file and by time, not by a quota; CPU/RAM are per-process rlimits,
+not a cgroup. A check may overwrite earlier result files of the same check run (it already controls its own
+result). For stronger isolation run the worker as a separate uid / in a container (`DD_EMBEDDED_WORKER=0`).
 
 ## Procedure output validation
 
